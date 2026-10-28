@@ -252,11 +252,48 @@ function resolveProducts_(extracts, issueNo) {
   return new Set(filtered.map(x => x.product_id).filter(Boolean));
 }
 
+/* ---------- 话题名规范（2-6 个字） ---------- */
+
+function normalizeTopicName_(name) {
+  var s = String(name || '').trim();
+  if (!s) return '';
+  s = s.replace(/[\r\n\t]/g, '');
+  s = s.replace(/\s+/g, '');
+  s = s.replace(/[（(][^（）()]*[）)]/g, '');
+  s = s.replace(/[【\[][^\[\]】]*[】\]]/g, '');
+  s = s.replace(/话题|讨论|问题|体验|感受|评价|吐槽|分析|总结|看法|反馈/g, '');
+  if (s.indexOf('：') >= 0) s = s.split('：')[0];
+  if (s.indexOf(':') >= 0) s = s.split(':')[0];
+  if (s.indexOf('-') >= 0 && s.length > 6) {
+    var p = s.split('-');
+    if (p[0] && p[0].length >= 2) s = p[0];
+  }
+  if (s.length > 6) s = s.slice(0, 6);
+  if (s.length < 2) {
+    s = String(name || '').replace(/\s+/g, '').slice(0, 6);
+  }
+  return s;
+}
+
+function ensureShortTopicName_(name) {
+  var n = normalizeTopicName_(name);
+  if (n.length >= 2 && n.length <= 6) return n;
+  if (n.length > 6) return n.slice(0, 6);
+  var fallback = String(name || '').replace(/\s+/g, '').slice(0, 6);
+  return fallback.length >= 2 ? fallback : '其他';
+}
+
 function createTopic_(name, productId) {
+  var shortName = ensureShortTopicName_(name);
   const id = nextId('TOP', 'Topics', 'topic_id');
   appendRow('Topics', {
-    topic_id: id, product_id: productId || '', name: name, keywords: '',
-    created_at: new Date().toISOString(), auto_created: 'yes', status: '',
+    topic_id: id,
+    product_id: productId || '',
+    name: shortName,
+    keywords: '',
+    created_at: new Date().toISOString(),
+    auto_created: 'yes',
+    status: '',
   });
   return id;
 }
@@ -327,7 +364,8 @@ function resolveTopicsBatch_(names, productId) {
         enqueuePending_('topic_merge_reviewed', { new_topic: u.name, similar_to: u.best, score: u.score },
           'AI 已复核:不合并,新建话题(与「' + u.best + '」相似度 ' + u.score.toFixed(2) + ')');
       }
-      result[u.name] = { topic_id: createTopic_(u.name, productId), summary: '' };
+      var finalTopicName = ensureShortTopicName_(u.name);
+      result[u.name] = { topic_id: createTopic_(finalTopicName, productId), summary: '' };
     });
   }
   return result;
