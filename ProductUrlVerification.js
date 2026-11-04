@@ -7,7 +7,8 @@
  * 规则：
  *   - 已登记 URL 与搜索结果都会实际抓取核验，不信任 AI 记忆或 URL 猜测；
  *   - 页面 <title>/<h1>/og:title 或正文必须包含产品型号，避免系列页/列表页；
- *   - 无 URL、URL 页面不匹配 → 删除产品及其关联行（默认开启）；
+ *   - 无 URL、URL 页面不匹配 → 默认只隔离（status=quarantined），不删除；
+ *     仅当显式传入 { deleteInvalid: true, quarantineOnly: false } 时才级联删除；
  *   - 网络超时、403/429/5xx 等暂时失败 → 标记 check_failed，保留待重试。
  * ============================================================ */
 
@@ -137,29 +138,63 @@ function fetchOfficialProductPage_(url) {
   return { code: code, html: html };
 }
 
+/**
+ * UrlFetch 抓不到有效内容时的 Crawl4AI 兜底。
+ * 只负责取回渲染后的文本，是否匹配仍由 productPageMatches_ 确定性判断。
+ * 返回 null 表示未取得可匹配内容；失败原因写入 noteOut。
+ */
+function tryRenderedMatch_(url, product, reason, noteOut) {
+  if (!crawl4aiCanRender_()) return { status: 'disabled' };
+  var rendered;
+  try {
+    rendered = crawl4aiRenderPage_(url, String(product.brand || '') + ' ' + String(product.canonical_name || ''));
+  } catch (e) {
+    // 渲染器自己挂了（配额/超时/反爬）不等于页面不匹配，不能当成硬失败。
+    noteOut.push('渲染失败(' + reason + '): ' + url.slice(0, 140) + ' | ' + String(e && e.message ? e.message : e).slice(0, 120));
+    return { status: 'error' };
+  }
+  if (!productPageMatches_(product.canonical_name, product.brand, rendered.strongText, rendered.fullText)) {
+    noteOut.push('渲染页面仍不匹配(' + reason + '): ' + url.slice(0, 140) + ' | ' + String(rendered.title || '').slice(0, 100));
+    return { status: 'no_match' };
+  }
+  return { status: 'matched', code: 200, title: rendered.title, via: 'crawl4ai' };
+}
+
 function inspectOfficialProductUrl_(url, product) {
+  var renderNotes = [];
   var page;
   try {
     page = fetchOfficialProductPage_(url);
   } catch (e) {
-    return { status: 'fetch_error', code: 0, message: String(e).slice(0, 200) };
+    // 网络层失败：可能是反爬或需要 JS 渲染，交给 Crawl4AI 再试一次。
+    var renderedOnError = tryRenderedMatch_(url, product, '网络错误', renderNotes);
+    if (renderedOnError.status === 'matched') return renderedOnError;
+    return { status: 'fetch_error', code: 0, message: String(e).slice(0, 200), render_notes: renderNotes };
   }
-  if (page.code < 200 || page.code >= 300) {
-    return {
-      status: (page.code === 404 || page.code === 410) ? 'invalid_http' : 'fetch_error',
-      code: page.code,
-      message: 'HTTP ' + page.code
-    };
+
+  var code = page.code;
+  if (code >= 200 && code < 300) {
+    var identity = extractPageIdentity_(page.html);
+    if (productPageMatches_(product.canonical_name, product.brand, identity.strongText, identity.fullText)) {
+      return { status: 'matched', code: code, title: identity.title, via: 'urlfetch' };
+    }
+    // 2xx 但不含型号：多半是 JS 渲染的空壳页（SPA 官网），用 Crawl4AI 渲染后再判。
+    var rendered = tryRenderedMatch_(url, product, '空壳页', renderNotes);
+    if (rendered.status === 'matched') return rendered;
+    if (rendered.status === 'error') {
+      // 页面确实是空壳，但渲染器没成功：无法下结论，保留待重试，不要隔离。
+      return { status: 'fetch_error', code: code, message: '空壳页且渲染失败', render_notes: renderNotes };
+    }
+    return { status: 'mismatch', code: code, title: identity.title, render_notes: renderNotes };
   }
-  var identity = extractPageIdentity_(page.html);
-  var matched = productPageMatches_(
-    product.canonical_name, product.brand, identity.strongText, identity.fullText
-  );
-  return {
-    status: matched ? 'matched' : 'mismatch',
-    code: page.code,
-    title: identity.title
-  };
+
+  if (code === 404 || code === 410) {
+    return { status: 'invalid_http', code: code, message: 'HTTP ' + code };
+  }
+  // 403/405/429/5xx：反爬或暂时失败，Crawl4AI 有独立出口，值得再试一次。
+  var renderedBlocked = tryRenderedMatch_(url, product, 'HTTP ' + code, renderNotes);
+  if (renderedBlocked.status === 'matched') return renderedBlocked;
+  return { status: 'fetch_error', code: code, message: 'HTTP ' + code, render_notes: renderNotes };
 }
 
 /**
@@ -190,18 +225,23 @@ function verifyProductUrl_(product) {
     if (result.status === 'matched') {
       return {
         status: 'verified', url: url, checked_at: checkedAt,
-        notes: ('页面标题: ' + String(result.title || '')).slice(0, 300)
+        via: result.via || 'urlfetch',
+        notes: (result.via === 'crawl4ai'
+          ? 'Crawl4AI 渲染页面核验通过 | 页面标题: '
+          : '页面标题: ') + String(result.title || '').slice(0, 300)
       };
     }
     if (result.status === 'mismatch') {
       hardInvalid = true;
       notes.push('页面与产品不匹配: ' + url.slice(0, 160) + ' | ' + String(result.title || '').slice(0, 100));
+      (result.render_notes || []).forEach(function(n) { notes.push(n); });
     } else if (result.status === 'invalid_http') {
       hardInvalid = true;
       notes.push('页面已失效(' + result.code + '): ' + url.slice(0, 160));
     } else {
       transient = true;
       notes.push('暂时无法抓取(' + (result.code || 'net') + '): ' + url.slice(0, 160));
+      (result.render_notes || []).forEach(function(n) { notes.push(n); });
     }
     return null;
   }
@@ -217,7 +257,7 @@ function verifyProductUrl_(product) {
     notes.push('官网搜索失败: ' + String(e).slice(0, 120));
   }
 
-  for (var i = 0; i < candidates.length && i < 8; i++) {
+  for (var i = 0; i < candidates.length && i < 12; i++) {
     hit = tryUrl(candidates[i]);
     if (hit) return hit;
   }
@@ -484,24 +524,36 @@ function verifyProductUrls_(options) {
     removed_rows: deletion.removed_rows,
     results: results,
     deleteInvalid: deleteInvalid,
-    quarantineOnly: true
+    quarantineOnly: quarantineOnly
   };
 }
 
-/** 供触发器/编辑器直接运行。 */
+/** 供触发器/编辑器直接运行。默认只隔离，不级联删除。 */
 function runProductUrlVerification(limit) {
   return verifyProductUrls_({
     limit: limit || Number(CONFIG.PRODUCT_URL_VERIFY_MAX_PER_RUN) || 20,
-    deleteInvalid: true
+    deleteInvalid: false,
+    quarantineOnly: true
   });
 }
 
+/** 幂等安装：已存在同名触发器时不重复创建。 */
 function installProductUrlVerifyTrigger_() {
-  ScriptApp.getProjectTriggers().forEach(function(t) {
-    if (t.getHandlerFunction() === 'runProductUrlVerification') ScriptApp.deleteTrigger(t);
+  return ensureProductUrlVerifyTrigger_();
+}
+
+function isProductUrlVerifyTriggerInstalled_() {
+  return ScriptApp.getProjectTriggers().some(function(t) {
+    return t.getHandlerFunction() === 'runProductUrlVerification';
   });
+}
+
+function ensureProductUrlVerifyTrigger_() {
+  if (isProductUrlVerifyTriggerInstalled_()) {
+    return 'URL 核验触发器已存在（每 6 小时运行），未重复创建。';
+  }
   ScriptApp.newTrigger('runProductUrlVerification').timeBased().everyHours(6).create();
-  return '已安装每 6 小时运行一次的产品官网 URL 核验触发器。';
+  return '已安装 URL 核验触发器：每 6 小时运行一次。';
 }
 
 /** 规格采集前确保 URL 已通过实时核验。 */

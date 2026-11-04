@@ -204,15 +204,7 @@ function createTopicTrendChart(topicId) {
   SpreadsheetApp.getActive().toast('已生成 ' + sheetName, '趋势分析', 4);
 }
 
-function addTrendMenu() {
-  var ui = SpreadsheetApp.getUi();
-  try {
-    ui.createMenu('趋势分析')
-      .addItem('按产品查看趋势（输入 product_id）', 'promptTrendProduct')
-      .addItem('按话题查看趋势（输入 topic_id）', 'promptTrendTopic')
-      .addToUi();
-  } catch(e) {}
-}
+/* 菜单统一由 Menu.js 的 addTrendMenu() 创建，避免重复定义互相覆盖。 */
 
 function promptTrendProduct() {
   var ui = SpreadsheetApp.getUi();

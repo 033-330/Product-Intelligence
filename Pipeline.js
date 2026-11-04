@@ -240,8 +240,14 @@ function resolveProducts_(extracts, issueNo) {
         enqueuePending_('product', x, 'Gemini 未返回映射:' + xname);
       }
       // 如果 AI 返回的 canonical_name/brand 看起来像品牌名或品类名，也要更谨慎，但仍按 NEW 创建
+      var canonicalName = (m && m.canonical_name) || x.canonical_guess || xname;
+      // 兜底：剥离 AI 可能臆造的 (Hypothetical)/(假设)/(推测) 等标注后缀，并禁止空名。
+      canonicalName = String(canonicalName || '')
+        .replace(/\s*[(（]\s*(?:hypothetical|假设|推测|猜测|未知|tentative|placeholder|未确认)\s*[)）]\s*/gi, '')
+        .replace(/\s*[(（]\s*[^)）]*(?:hypothetical|假设|推测|猜测|未知|tentative|placeholder|未确认)[^)）]*\s*[)）]\s*/gi, '')
+        .trim() || xname;
       x.product_id = createProduct_(
-        (m && m.canonical_name) || x.canonical_guess || xname,
+        canonicalName,
         (m && m.brand) || x.brand_guess || '',
         (m && m.category) || x.category_guess || 'unknown',
         issueNo

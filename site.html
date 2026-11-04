@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Product Intelligence — 产品情报</title>
+<style>
+:root{--bg:#f5f5f1;--paper:#fff;--ink:#20251f;--muted:#777d73;--line:#e4e5dc;--green:#355d45;--pos:#87a774;--neg:#c87948;--neu:#b9c0b0;--pale:#edf2e7;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--bg)}*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button{cursor:pointer}a{color:inherit;text-decoration:none}.shell{max-width:1440px;margin:auto;padding:0 30px}header{height:76px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);background:#f9f9f5;padding:0 max(30px,calc((100vw - 1440px)/2));position:sticky;top:0;z-index:5}.brand{display:flex;align-items:center;gap:11px;font-size:17px;font-weight:750;letter-spacing:-.5px}.logo{width:29px;height:29px;background:var(--green);border-radius:9px;display:grid;place-items:center;color:#fff;font-size:15px}.brand small{font-size:10px;color:var(--muted);font-weight:500;display:block;letter-spacing:1.5px;margin-top:3px}.top-right{display:flex;gap:15px;align-items:center;color:var(--muted);font-size:12px}.live-dot{width:7px;height:7px;border-radius:50%;background:#79a46c;display:inline-block;margin-right:6px}.layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:35px;padding-top:30px}.sidebar{padding:5px 0;position:sticky;top:100px;height:calc(100vh - 120px)}.side-label{font-size:10px;letter-spacing:1.8px;color:#9a9e94;font-weight:700;margin:20px 12px 10px}.nav{display:flex;gap:10px;align-items:center;padding:11px 12px;border-radius:8px;color:#60675e;font-size:13px;margin:3px 0;cursor:pointer}.nav.active{background:#e7eddf;color:var(--green);font-weight:650}.nav .ico{width:18px;text-align:center;font-size:15px}.side-note{position:absolute;bottom:0;background:#eeefe8;border-radius:12px;padding:15px;color:var(--muted);font-size:11px;line-height:1.7}.side-note b{color:var(--ink);display:block;margin-bottom:4px}.main{min-width:0;padding-bottom:60px}.eyebrow{font-size:10px;letter-spacing:2px;color:var(--green);font-weight:750}.hero{display:flex;justify-content:space-between;gap:30px;align-items:end;margin:6px 0 25px}.hero h1{font-size:clamp(28px,3vw,39px);font-weight:560;letter-spacing:-1.4px;line-height:1.2;margin:12px 0}.hero p{margin:0;color:var(--muted);font-size:13px;line-height:1.8;max-width:590px}.snapshot{border:1px solid var(--line);background:#fffefa;padding:13px 16px;border-radius:10px;min-width:170px;font-size:11px;color:var(--muted)}.snapshot strong{display:block;color:var(--ink);font-size:17px;margin:5px 0}.section-head{display:flex;justify-content:space-between;gap:20px;align-items:end;margin:31px 0 15px}.section-head h2{font-size:18px;letter-spacing:-.4px;margin:0;font-weight:650}.section-head p{font-size:11px;color:var(--muted);margin:6px 0 0}.controls{display:flex;gap:9px;flex-wrap:wrap;align-items:center}.search{position:relative;min-width:260px;flex:1}.search input{width:100%;padding:12px 14px 12px 38px;border:1px solid #dfe1d7;border-radius:8px;background:#fffefa;outline:none;font-size:12px}.search:before{content:'⌕';position:absolute;left:14px;top:7px;font-size:23px;color:#838a7d}.controls select{padding:11px 12px;border:1px solid #dfe1d7;border-radius:8px;background:#fffefa;color:#51584f;font-size:12px}.tabs-sort{display:flex;gap:4px;padding:4px;background:#e9ebe3;border-radius:9px}.tabs-sort button{border:0;background:transparent;border-radius:6px;padding:8px 13px;font-size:11px;color:#6e746a}.tabs-sort button.active{background:#fffefa;color:var(--ink);box-shadow:0 1px 3px #0000000a}.product-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}.product{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:17px;cursor:pointer;transition:transform .15s,border .15s;min-width:0}.product:hover{transform:translateY(-2px);border-color:#a8b99a}.product-top{display:flex;justify-content:space-between;align-items:start;gap:8px}.device{width:46px;height:46px;border-radius:12px;background:#edf0e8;display:grid;place-items:center;font-size:24px}.type{font-size:10px;background:#f0f1eb;color:#72786d;border-radius:5px;padding:5px 7px}.product h3{font-size:15px;margin:15px 0 8px;letter-spacing:-.2px;line-height:1.4}.product .subname{font-size:11px;color:var(--muted);min-height:17px;line-height:1.6}.mini-topics{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;min-width:0}.pill{background:#f1f2ed;border:1px solid #e9eae3;color:#666e62;font-size:10px;padding:5px 7px;border-radius:5px}.product-foot{border-top:1px solid #edeee8;padding-top:12px;margin-top:14px;display:flex;justify-content:space-between;color:var(--muted);font-size:10px}.product-foot b{color:var(--green);font-weight:600}.empty{grid-column:1/-1;background:#fff;border:1px dashed var(--line);padding:40px;text-align:center;color:var(--muted);border-radius:12px;font-size:12px}.error-box{grid-column:1/-1;background:#fdf3ef;border:1px solid #ecc9b8;padding:24px;text-align:center;color:#a05a32;border-radius:12px;font-size:12px;line-height:1.8}.lower-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:28px;align-items:stretch}.panel{background:#fffefa;border:1px solid var(--line);border-radius:12px;padding:20px;min-width:0;margin-bottom:14px}.panel-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:17px;gap:12px}.panel-title h3{font-size:14px;margin:0}.panel-title span{font-size:10px;color:var(--muted)}.event{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:12px;padding:13px 0;border-bottom:1px solid #eceee6;align-items:start}.event:last-child{border-bottom:0}.platform{width:38px;height:38px;border-radius:9px;background:#f0eee8;display:grid;place-items:center;font-size:10px;font-weight:700;color:#62695e}.event h4{font-size:12px;margin:0 0 5px}.event p{font-size:11px;line-height:1.65;color:var(--muted);margin:0}.event .tag{font-size:10px;color:var(--green);background:#edf2e7;padding:5px 7px;border-radius:5px;white-space:nowrap}.detail-view{display:none}.detail-header{display:flex;align-items:start;justify-content:space-between;gap:20px;padding:20px 0 0}.back{border:1px solid var(--line);background:#fffefa;border-radius:8px;padding:9px 12px;font-size:11px;color:#596154}.detail-header h1{font-size:32px;letter-spacing:-1px;margin:12px 0 7px}.detail-header p{color:var(--muted);font-size:12px;margin:0}.detail-actions{display:flex;gap:8px}.outline{border:1px solid #dce0d5;background:#fffefa;padding:9px 12px;border-radius:7px;font-size:11px}
+/* ===== 详情页 Tab 导航 ===== */
+.dtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:18px 0 20px;overflow:auto}
+.dtab{border:0;background:transparent;border-bottom:3px solid transparent;padding:11px 15px 10px;font-size:12.5px;color:#6e746a;white-space:nowrap;display:flex;gap:7px;align-items:center}
+.dtab .tico{font-size:14px}
+.dtab.active{border-color:var(--green);color:var(--green);font-weight:650}
+.dview{display:none}.dview.active{display:block}
+/* ===== 概览 tab ===== */
+.ov-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.ov-kpi{background:var(--paper);border:1px solid var(--line);border-radius:11px;padding:14px 16px}
+.ov-kpi .label{font-size:10px;color:var(--muted)}.ov-kpi strong{display:block;font-size:23px;font-weight:560;letter-spacing:-.7px;margin:7px 0 3px}
+.ov-kpi small{font-size:10px;color:#8a9086}
+/* ===== Topic 横条 ===== */
+.topic{padding:12px 0;border-bottom:1px solid #edeee7}.topic:last-child{border:0}
+.topic .t-head{display:flex;justify-content:space-between;align-items:baseline;font-size:12px}
+.topic .t-head b{font-weight:650}.topic .t-head .cnt{font-size:10px;color:#9aa091;font-weight:400}
+.topic-bar{height:5px;background:#eef0e9;border-radius:3px;margin:8px 0 7px;overflow:hidden}
+.topic-bar i{display:block;height:100%;border-radius:3px}
+.topic p{margin:0;font-size:11px;color:var(--muted);line-height:1.7}
+.quote{margin:8px 0 0;padding:9px 12px;background:#f4f6ef;border-left:2px solid #8da47e;border-radius:0 7px 7px 0;font-size:11px;line-height:1.75;color:#3c4939}
+.quote small{display:block;color:#81887b;font-size:10px;margin-top:4px}
+.quote a{color:var(--green);text-decoration:underline}
+/* ===== 情绪分布 ===== */
+.sf-row{display:grid;grid-template-columns:140px minmax(0,1fr) 84px;gap:10px;align-items:center;padding:8px 0;font-size:11px}
+.sf-row .n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sf-bar{height:15px;display:flex;border-radius:4px;overflow:hidden}
+.sf-bar i{display:block;height:100%;cursor:pointer}
+.sf-bar i:hover{filter:brightness(.82)}
+.sample-warn{font-size:9px;color:#a05a32;background:#fdf3ef;border:1px solid #ecc9b8;border-radius:4px;padding:1px 5px;margin-left:6px;font-weight:400}
+.fb-head{font-size:11px;font-weight:650;margin:12px 0 4px}
+.fb-item{padding:8px 10px;border-left:2px solid #8da47e;background:#f7f8f3;border-radius:0 6px 6px 0;margin:6px 0;font-size:10.5px;line-height:1.7}
+.fb-item.neg{border-left-color:#c87948}
+.fb-item small{color:#81887b}
+.fb-item a{color:var(--green)}
+/* ===== 竞品 ===== */
+.comp-block{padding:6px 0;border-bottom:1px solid #eff2ec}.comp-block:last-child{border:0}
+.comp-head{display:flex;justify-content:space-between;align-items:baseline;font-size:12px}
+.comp-head b{font-weight:650}
+.comp-dims{font-size:10px;color:var(--muted);margin:3px 0 6px}
+.comp-summary{font-size:11px;color:var(--muted);line-height:1.7;margin:0 0 4px}
+.comp-tag{font-size:10px;background:#f0f1eb;padding:4px 7px;border-radius:5px;color:#6c7368;white-space:nowrap}
+/* ===== 用户反馈 tab ===== */
+.fb-filter{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.fb-filter button{border:1px solid var(--line);background:#fffefa;border-radius:16px;padding:6px 13px;font-size:11px;color:#596154}
+.fb-filter button.active{background:var(--green);color:#fff;border-color:var(--green)}
+.footnote{font-size:10px;color:#858b80;line-height:1.8;margin-top:22px;padding-top:15px;border-top:1px solid var(--line)}
+.toast{position:fixed;bottom:20px;right:20px;background:#263d2d;color:white;padding:12px 16px;border-radius:8px;font-size:12px;display:none;z-index:10}
+.skeleton{grid-column:1/-1;padding:30px;text-align:center;color:var(--muted);font-size:12px}
+/* ===== 情绪分析(蓝版原型布局) ===== */
+.senti-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.senti-kpi{background:var(--paper);border:1px solid var(--line);border-radius:11px;padding:14px 16px}
+.senti-kpi .label{font-size:10px;color:var(--muted)}
+.senti-kpi strong{display:block;font-size:23px;font-weight:560;letter-spacing:-.7px;margin:7px 0 3px}
+.senti-kpi small{font-size:10px}
+.senti-kpi .up{color:var(--pos)}.senti-kpi .down{color:var(--neg)}
+.senti-grid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(280px,.9fr);gap:14px;align-items:start}
+.st-row{display:grid;grid-template-columns:minmax(100px,1fr) 52px minmax(140px,1.5fr) 96px;gap:11px;align-items:center;padding:12px 0;border-bottom:1px solid #eff2ec;font-size:11px}
+.st-row:last-child{border:0}
+.st-name{font-weight:650;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st-name:hover{color:var(--green)}
+.st-count{text-align:right;color:#61718f;font-variant-numeric:tabular-nums;font-size:10.5px}
+.st-stack{height:14px;display:flex;border-radius:4px;overflow:hidden;background:#edf0e6}
+.st-stack i{display:block;height:100%;cursor:pointer}
+.st-stack i:hover{filter:brightness(.85)}
+.st-pct{display:flex;gap:8px;justify-content:flex-end;font-size:10px;font-variant-numeric:tabular-nums}
+.st-pct .p{color:#14a77b}.st-pct .g{color:#f05e69}.st-pct .z{color:#7d8aa4}
+.sample-warn{font-size:9px;color:#a05a32;background:#fdf3ef;border:1px solid #ecc9b8;border-radius:4px;padding:1px 5px;margin-left:6px;font-weight:400}
+.insight{margin-top:16px;padding:14px 15px;border-radius:10px;background:var(--pale);border:1px solid #dfe8d2}
+.insight-title{display:flex;gap:7px;align-items:center;color:var(--green);font-weight:750;font-size:12px;margin-bottom:6px}
+.insight ul{padding-left:17px;margin:6px 0 0;font-size:11px;line-height:1.9;color:#52604a}
+.donut-wrap{display:flex;gap:18px;align-items:center;padding:8px 0 12px}
+.donut{width:118px;height:118px;border-radius:50%;display:grid;place-items:center;flex-shrink:0}
+.donut-hole{width:74px;height:74px;border-radius:50%;background:#fffefa;display:grid;place-items:center;text-align:center;font-size:9px;color:var(--muted)}
+.donut-hole b{display:block;color:var(--ink);font-size:17px;margin-top:2px}
+.senti-list{flex:1;display:grid;gap:11px}
+.senti-item{display:grid;grid-template-columns:9px 1fr auto;gap:8px;align-items:center;font-size:11px}
+.senti-item strong{font-weight:650}
+.senti-item small{color:var(--muted);font-size:10px}
+.focus-item{padding:12px 0;border-bottom:1px solid #eff2ec}
+.focus-item:last-child{border:0}
+.focus-line{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;font-weight:700}
+.sent-badge{font-size:9px;border-radius:20px;padding:4px 7px;background:#fff0f0;color:#e65b66;white-space:nowrap}
+.sent-badge.good{background:#e7f8f2;color:#16966f}
+.focus-item p{font-size:10px;line-height:1.7;color:var(--muted);margin:6px 0 0}
+.fb-head{font-size:11px;font-weight:650;margin:12px 0 4px}
+.fb-item{padding:8px 10px;border-left:2px solid #8da47e;background:#f7f8f3;border-radius:0 6px 6px 0;margin:6px 0;font-size:10.5px;line-height:1.7}
+.fb-item.neg{border-left-color:#c87948}
+.fb-item small{color:#81887b}
+.fb-item a{color:var(--green)}
+.fb-filter{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.fb-filter button{border:1px solid var(--line);background:#fffefa;border-radius:16px;padding:6px 13px;font-size:11px;color:#596154}
+.fb-filter button.active{background:var(--green);color:#fff;border-color:var(--green)}
+
+@media(max-width:1000px){.layout{grid-template-columns:1fr}.sidebar{position:static;height:auto;display:flex;gap:4px;overflow:auto;padding:0}.side-label,.side-note{display:none}.nav{white-space:nowrap}.product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.layout{gap:10px}.lower-grid{grid-template-columns:1fr 1fr}.ov-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:650px){header{padding:0 16px;height:65px}.top-right{display:none}.shell{padding:0 16px}.hero{display:block}.snapshot{margin-top:18px}.product-grid{grid-template-columns:1fr}.lower-grid{grid-template-columns:1fr}.section-head{align-items:start;flex-direction:column}.controls{width:100%}.search{min-width:100%}.controls select{flex:1}.detail-header{display:block}.detail-actions{margin-top:16px}.detail-header h1{font-size:28px}.sf-row{grid-template-columns:100px minmax(0,1fr) 70px}.ov-grid{grid-template-columns:repeat(2,1fr)}}
+
+/* ===== 情绪分析响应式：按面板实际宽度适配分屏 ===== */
+#dviewSentiment{container-type:inline-size;min-width:0}
+#dviewSentiment .senti-grid,
+#dviewSentiment .senti-grid > *,
+#dviewSentiment .senti-grid .panel{min-width:0;max-width:100%}
+#dviewSentiment #sentimentChart{min-width:0;max-width:100%;overflow-x:hidden}
+#dviewSentiment .donut-wrap{min-width:0;flex-wrap:wrap}
+#dviewSentiment .senti-list{min-width:150px}
+@container (max-width:960px){
+  #dviewSentiment .senti-grid{grid-template-columns:minmax(0,1fr)}
+  #dviewSentiment .senti-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  #dviewSentiment .st-row{grid-template-columns:minmax(0,1fr) 42px minmax(70px,1fr) 76px;gap:7px}
+  #dviewSentiment .st-pct{gap:4px;font-size:9px}
+  #dviewSentiment .panel{padding:16px}
+}
+@container (max-width:520px){
+  #dviewSentiment .st-row{grid-template-columns:minmax(0,1fr) 38px minmax(58px,.8fr) 67px;gap:5px;font-size:10px}
+  #dviewSentiment .st-count{font-size:9px}
+  #dviewSentiment .st-pct{gap:3px;font-size:8px}
+  #dviewSentiment .senti-kpi{padding:11px}
+  #dviewSentiment .senti-kpi strong{font-size:20px}
+  #dviewSentiment .panel-title{align-items:flex-start;flex-wrap:wrap}
+  #dviewSentiment .donut-wrap{gap:12px}
+}
+
+/* ===== 新增：AI 评论检索 / 多产品对比，沿用原有米白与森林绿视觉 ===== */
+.feature-panel{background:#fffefa;border:1px solid var(--line);border-radius:12px;padding:20px;margin:24px 0}
+.feature-head{display:flex;justify-content:space-between;align-items:start;gap:16px;margin-bottom:14px}
+.feature-head h2,.feature-head h3{font-size:16px;font-weight:650;margin:0}
+.feature-head p{font-size:11px;line-height:1.7;color:var(--muted);margin:6px 0 0}
+.feature-kicker{font-size:10px;letter-spacing:1.5px;color:var(--green);font-weight:750;margin-bottom:7px}
+.feature-input{width:100%;border:1px solid #dfe1d7;background:#fff;border-radius:8px;padding:11px 12px;font-size:12px;outline:none;color:var(--ink)}
+.feature-input:focus{border-color:#91a887;box-shadow:0 0 0 3px #edf2e7}
+.feature-btn{border:1px solid var(--green);background:var(--green);color:#fff;border-radius:7px;padding:10px 14px;font-size:11px;white-space:nowrap}
+.feature-btn.secondary{background:#fffefa;color:var(--green);border-color:#dce0d5}
+.feature-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.compare-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.feature-results{margin-top:16px}
+.feature-note{font-size:10px;color:var(--muted);line-height:1.7;margin-top:10px}
+.match-list{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.match-chip{border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:11px;background:#f8f9f4}
+.match-chip strong{display:block;margin-bottom:3px}
+.review-result{padding:13px 0;border-bottom:1px solid #eceee6}
+.review-result:last-child{border-bottom:0}
+.review-meta{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:7px}
+.review-result mark{background:#f8df73;color:#27291f;border-radius:3px;padding:0 1px}.review-suggestions{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0 14px}.review-suggestions button{border:1px solid var(--line);background:#fffefa;border-radius:999px;padding:7px 10px;color:var(--muted);font-size:11px}.review-suggestions button:hover{border-color:var(--green);color:var(--green)}#reviewDateFrom,#reviewDateTo{padding:10px;border:1px solid #dfe1d7;border-radius:8px;background:#fffefa;color:#51584f;font-size:11px;max-width:150px}.review-result blockquote{margin:0;padding:10px 12px;background:#f4f6ef;border-left:2px solid #8da47e;border-radius:0 7px 7px 0;font-size:12px;line-height:1.8}
+.review-result.negative blockquote{border-left-color:var(--neg)}
+.review-result small{display:block;margin-top:6px;font-size:10px;color:var(--muted)}
+.match-badge{font-size:9px;border-radius:5px;padding:4px 6px;background:#edf2e7;color:var(--green)}
+.match-badge.semantic{background:#f0f1eb;color:#687063}
+.sentiment-select{border:1px solid #dfe1d7;border-radius:7px;padding:9px;background:#fffefa;font-size:11px;color:#596154}
+.compare-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:9px;margin-top:14px}
+.compare-table{border-collapse:collapse;width:100%;min-width:620px;font-size:11px;background:#fffefa}
+.compare-table th,.compare-table td{padding:12px 13px;text-align:left;border-bottom:1px solid #eceee6;vertical-align:top}
+.compare-table th{background:#f1f3ec;color:#4b5847;font-weight:650}
+.compare-table tr:last-child td{border-bottom:0}
+.compare-table td:first-child{font-weight:650;color:#596154;background:#fafbf7;min-width:130px}
+.spec-source{font-size:9px;color:var(--muted);display:block;margin-top:4px;word-break:break-all}
+@media(max-width:760px){.compare-fields{grid-template-columns:1fr}.feature-head{flex-direction:column}.feature-panel{padding:15px}.feature-actions .feature-btn{flex:1}}
+
+.prod-official{margin-left:auto;font-size:10px;color:var(--green);border:1px solid #dce5d3;border-radius:6px;padding:2px 6px;background:#f7faf3}.prod-official:hover{background:#eef4e6}
+</style><base target="_blank">
+</head><body>
+<header><div class="brand"><div class="logo">P</div><div>Product Intelligence<small>PRODUCT SIGNALS, NOT DOCUMENTS</small></div></div><div class="top-right"><span><i class="live-dot"></i>数据实时来自 Google Sheets</span><span id="hdrDate">数据快照</span></div></header>
+<div class="shell"><div class="layout"><aside class="sidebar"><div class="side-label">WORKSPACE</div><div class="nav active" data-page="overview"><span class="ico">▦</span>产品总览</div><div class="nav" data-page="overview" data-focus="mouse"><span class="ico">◉</span>鼠标</div><div class="nav" data-page="overview" data-focus="keyboard"><span class="ico">⌨</span>键盘</div><div class="nav" data-page="overview" data-focus="headset"><span class="ico">◖</span>耳机</div><div class="side-label">INTELLIGENCE</div><div class="nav" id="eventsNav"><span class="ico">↗</span>近期事件</div><div class="side-note"><b>数据口径</b>全部指标来自结构化抽取<br>提及数可回溯到原始来源<br>每产品 Top Topics 为全历史累计排序</div></aside>
+<main class="main">
+<section id="overviewView"><div class="hero"><div><div class="eyebrow">PRODUCT-CENTRIC RESEARCH</div><h1>从产品出发，读懂市场信号。</h1><p>找到一款具体产品，快速查看它被讨论什么、用户在意什么，以及它经常与哪些竞品一起出现。Newsletter 是数据来源，不再是信息入口。</p></div><div class="snapshot">当前研究集<strong id="snapshotName">—</strong><span id="snapshotDesc">加载中…</span></div></div>
+<div class="feature-panel" id="comparePanel">
+  <div class="feature-head"><div><div class="feature-kicker">COMPETITOR RESEARCH</div><h2>竞品对比</h2><p>输入两个或多个产品名称或别名，系统会先匹配已收录产品，再生成官方规格对比。</p></div><span class="type">2–6 个产品</span></div>
+  <textarea id="compareNames" class="feature-input" rows="3" placeholder="例如：GPW5 Ultra、狗五、Razer Viper V3 Pro&#10;每行或用逗号分隔一个产品"></textarea>
+  <div class="feature-actions"><button class="feature-btn" id="compareRun">识别产品并生成对比</button><button class="feature-btn secondary" id="compareRefresh" disabled>重新获取官网规格</button></div>
+  <div class="feature-results" id="compareResults"></div>
+  <div class="feature-note">仅展示数据库中可追溯的规格。别名不确定或型号存在歧义时会要求确认；不会凭空补全参数。</div>
+</div>
+<div class="section-head"><div><h2>产品目录</h2><p>搜索产品名称、别名、技术关键词或竞品；点击产品进入产品情报页。</p></div><div class="tabs-sort" id="sortTabs"><button class="active" data-sort="relevant">按讨论量</button><button data-sort="name">按名称</button></div></div>
+<div class="controls"><div class="search"><input id="search" placeholder="搜索产品,例如 GPW5 Ultra、PRO X3、磁轴…" autocomplete="off"></div><select id="category"><option value="all">全部品类</option><option value="mouse">鼠标</option><option value="trackball">轨迹球</option><option value="pointing_device">指向设备</option><option value="keyboard">键盘</option><option value="combo">键鼠套装</option><option value="headset">游戏耳机</option><option value="headphones">耳机</option><option value="earbuds">耳塞</option><option value="speaker">扬声器</option><option value="webcam">网络摄像头</option><option value="conference_camera">会议摄像头</option><option value="conference_system">会议系统</option><option value="speakerphone">扬声器电话</option><option value="microphone">麦克风</option><option value="gaming_controller">游戏控制器</option><option value="racing_wheel">赛车方向盘</option><option value="flight_simulation">飞行模拟设备</option><option value="presenter">演示器</option><option value="tablet_accessory">平板配件</option><option value="lighting">灯光</option><option value="mousepad">鼠标垫</option><option value="receiver">接收器</option><option value="stand">支架</option><option value="accessory">配件</option></select><select id="brandFilter"><option value="all">全部品牌</option></select></div>
+<div class="section-head"><div><h2 id="resultTitle">产品目录</h2><p id="resultCount">加载中…</p></div></div><div class="product-grid" id="productGrid"><div class="skeleton">正在从 Google Sheets 读取产品数据…</div></div>
+<div class="lower-grid" id="lowerPanels"><div class="panel"><div class="panel-title"><h3>近期值得关注的事件</h3><span>事件流</span></div><div id="eventList"><div class="skeleton">加载中…</div></div></div><div class="panel"><div class="panel-title"><h3>用户诉求与痛点</h3><span>跨产品归纳 · 实时统计</span></div><div id="topicList"><div class="skeleton">加载中…</div></div></div></div>
+<div class="footnote">数据说明:所有 Topic 按全历史累计提及次数排序;每条反馈附原文引述与来源链接,可回溯到具体视频 / 帖子。</div></section>
+
+<section class="detail-view" id="detailView">
+<button class="back" id="backBtn">← 返回产品目录</button>
+<div class="detail-header"><div><div class="eyebrow" id="detailCategory">PRODUCT PROFILE</div><h1 id="detailName">产品名称</h1><p id="detailSubtitle"></p></div><div class="detail-actions"><button class="outline" id="copyProduct">复制产品摘要</button></div></div>
+
+<div class="dtabs" id="dtabs">
+  <button class="dtab active" data-dview="dviewReviewSearch"><span class="tico">⌕</span>AI Review Search</button>
+  <button class="dtab" data-dview="dviewTopics"><span class="tico">◎</span>Topic 分析</button>
+  <button class="dtab" data-dview="dviewCompetitors"><span class="tico">⇄</span>竞品分析</button>
+  <button class="dtab" data-dview="dviewOverview"><span class="tico">▦</span>产品概览</button>
+  <button class="dtab" data-dview="dviewSentiment"><span class="tico">◐</span>情绪分析</button>
+  <button class="dtab" data-dview="dviewFeedback"><span class="tico">❝</span>全部用户反馈</button>
+</div>
+
+<div class="dview active" id="dviewReviewSearch">
+  <div class="feature-panel" id="reviewSearchPanel">
+    <div class="feature-head"><div><div class="feature-kicker">AI-POWERED REVIEW SEARCH</div><h3>AI 智能用户评论检索</h3><p>使用自然语言查找真实用户反馈。系统会高亮原文中的命中词，并展示匹配原因与来源。</p></div></div>
+    <div class="controls"><div class="search"><input id="reviewQuery" placeholder="Find reviews mentioning battery life and connection issues" aria-label="搜索用户评论"></div><select id="reviewSentiment" class="sentiment-select"><option value="all">全部情绪</option><option value="positive">正面</option><option value="negative">负面</option><option value="neutral">中性</option></select><input id="reviewDateFrom" type="date" aria-label="开始日期" title="开始日期"><input id="reviewDateTo" type="date" aria-label="结束日期" title="结束日期"><button class="feature-btn" id="reviewSearchRun">搜索评论</button></div>
+    <div class="review-suggestions"><button type="button" data-review-query="battery life complaints">Battery life complaints</button><button type="button" data-review-query="connection issues">Connection stability</button><button type="button" data-review-query="switching between devices">Multi-device switching</button></div>
+    <div class="feature-results" id="reviewSearchResults"><div class="empty">输入问题，搜索当前产品关联的真实评论。</div></div>
+    <div class="feature-note">基础关键词检索无需 AI API。语义检索为可选增强；所有结果必须来自真实 Feedback 数据，AI 不会生成评论。</div>
+  </div>
+</div>
+
+<div class="dview" id="dviewOverview">
+  <div class="ov-grid" id="ovKpis"></div>
+  <div class="panel"><div class="panel-title"><h3>官方产品规格</h3><span>来自官方页面 · 显示来源与核验状态</span></div><div id="detailSpecs"><div class="empty">暂无已采集的官方规格</div></div></div>
+  <div class="panel"><div class="panel-title"><h3>用户诉求与痛点</h3><span>评论区与评测中的真实需求 · 已过滤卖点评价</span></div><div id="detailNeeds"><div class="skeleton">加载中…</div></div></div>
+  <div class="panel"><div class="panel-title"><h3>相关事件</h3><span>来源 → 事件 → 产品</span></div><div id="detailEvents"><div class="skeleton">加载中…</div></div></div>
+</div>
+
+<div class="dview" id="dviewTopics">
+  <div class="panel"><div class="panel-title"><h3>最值得关注的 Topics</h3><span>全历史累计 · 条长 = 提及占比 · 颜色 = 情感</span></div><div id="detailTopics"><div class="skeleton">加载中…</div></div></div>
+</div>
+
+<div class="dview" id="dviewSentiment">
+  <div class="senti-metrics" id="sentiKpis"></div>
+  <div class="senti-grid">
+    <div class="panel">
+      <div class="panel-title"><h3>Topic 情绪分析</h3>
+        <div class="tabs-sort" id="sentiMode"><button class="active" data-mode="ratio">情绪分布</button><button data-mode="count">情绪数量</button></div>
+      </div>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:10px;color:var(--muted);margin-bottom:6px">
+        <span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--pos);margin-right:4px"></i>正面</span>
+        <span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--neu);margin-right:4px"></i>中性 / 混合</span>
+        <span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--neg);margin-right:4px"></i>负面</span>
+        <span style="margin-left:auto">点击 Topic 名看全部反馈 · 点击色块看对应情绪</span>
+      </div>
+      <div id="sentimentChart"></div>
+      <div class="insight"><div class="insight-title">✦ 核心洞察</div><ul id="insightText"></ul></div>
+    </div>
+    <div>
+      <div class="panel"><div class="panel-title"><h3>整体情绪分布</h3><span id="donutScope">全部有效反馈</span></div>
+        <div class="donut-wrap"><div class="donut" id="donut"><div class="donut-hole">总反馈<b id="donutTotal">—</b></div></div>
+        <div class="senti-list">
+          <div class="senti-item"><i style="width:9px;height:9px;border-radius:50%;background:var(--pos)"></i><div><strong>正面</strong><br><small>用户认可与产品优势</small></div><b id="donutPos">—</b></div>
+          <div class="senti-item"><i style="width:9px;height:9px;border-radius:50%;background:var(--neg)"></i><div><strong>负面</strong><br><small>抱怨与待改进体验</small></div><b id="donutNeg">—</b></div>
+          <div class="senti-item"><i style="width:9px;height:9px;border-radius:50%;background:var(--neu)"></i><div><strong>中性 / 混合</strong><br><small>描述性或评价分化</small></div><b id="donutNeu">—</b></div>
+        </div></div>
+      </div>
+      <div class="panel"><div class="panel-title"><h3>重点 Topic 情绪概览</h3><span>按负面占比排序</span></div><div id="focusTopics"></div></div>
+    </div>
+  </div>
+  <div class="panel"><div class="panel-title"><h3>原始反馈</h3><span id="fbDrillTitle">点击上方色块或 Topic 名查看</span></div><div id="feedbackList"><div class="empty">尚未选择 · 点击情绪条中的色块,按情绪筛选该话题的原始反馈</div></div></div>
+</div>
+
+<div class="dview" id="dviewCompetitors">
+  <div class="panel"><div class="panel-title"><h3>关联竞品</h3><span>按关联强度排序 · 比较维度 + 摘要 + 证据</span></div><div id="detailCompetitors"></div></div>
+</div>
+
+<div class="dview" id="dviewFeedback">
+  
+  <div class="panel"><div class="panel-title"><h3>全部用户反馈</h3><span>按情绪筛选 · 反馈级数据(重新入库后覆盖更全)</span></div>
+    <div class="fb-filter" id="fbFilter">
+      <button class="active" data-sent="">全部</button>
+      <button data-sent="positive">正面</button>
+      <button data-sent="neutral">中性</button>
+      <button data-sent="negative">负面</button>
+    </div>
+    <div id="allFeedback"><div class="skeleton">加载中…</div></div>
+  </div>
+</div>
+<div class="footnote">阅读提示:Topic 归属于具体产品;摘要为 AI 基于原文的归纳,引文为逐字摘录;情绪分布的分母与口径见面板右上角标注。</div>
+</section>
+</main></div></div><div class="toast" id="toast"></div>
+<script>
+const catNames = {mouse:'鼠标',trackball:'轨迹球',pointing_device:'指向设备',keyboard:'键盘',combo:'键鼠套装',headset:'游戏耳机',headphones:'耳机',earbuds:'耳塞',speaker:'扬声器',webcam:'网络摄像头',conference_camera:'会议摄像头',conference_system:'会议系统',speakerphone:'扬声器电话',microphone:'麦克风',gaming_controller:'游戏控制器',racing_wheel:'赛车方向盘',flight_simulation:'飞行模拟',presenter:'演示器',tablet_accessory:'平板配件',lighting:'灯光',mousepad:'鼠标垫',receiver:'接收器',stand:'支架',accessory:'配件',brand:'品牌'};
+const catIcons = {mouse:'🖱️',keyboard:'⌨️',headset:'🎧',accessory:'▰',brand:'◉'};
+const $ = s => document.querySelector(s);
+let productList = [];
+let currentProduct = null;
+let currentId = null;
+let fbSentiment = '';
+
+function api(params) {
+  return new Promise((resolve, reject) => {
+    // Apps Script Web App 页面内直接调用服务器函数，避免 fetch 的跨域/重定向问题
+    if (!(window.google && google.script && google.script.run)) {
+      reject(new Error('当前页面没有连接到 Apps Script。请通过部署后的 Web App /exec 地址打开网站。'));
+      return;
+    }
+
+    google.script.run
+      .withSuccessHandler(data => {
+        if (data && data.error) {
+          reject(new Error(data.error));
+          return;
+        }
+        resolve(data);
+      })
+      .withFailureHandler(err => {
+        reject(new Error(err && err.message ? err.message : String(err)));
+      })
+      .apiDispatch(params.action, params);
+  });
+}
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function highlightReviewText(text, terms) { const raw=String(text||''); const clean=(terms||[]).map(String).filter(Boolean).sort((a,b)=>b.length-a.length); if(!clean.length) return esc(raw); const re=new RegExp(clean.map(t=>t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|'),'ig'); let out='',last=0,m; while((m=re.exec(raw))!==null){out+=esc(raw.slice(last,m.index))+'<mark>'+esc(m[0])+'</mark>';last=m.index+m[0].length;if(!m[0].length)re.lastIndex++;} return out+esc(raw.slice(last)); }
+const iconOf = p => catIcons[p.category] || '▰';
+const platformShort = s => ({'B站':'B站','小红书':'小红书','抖音':'抖音'}[s] || (s || '').slice(0,3) || '综合');
+const lbl = {positive:'正面', neutral:'中性', negative:'负面'};
+
+/* ================= 目录页 ================= */
+async function loadOverview() {
+  try {
+    const all = await api({action:'listProducts'});
+    productList = all;
+    const brands = [...new Set(productList.map(p => p.brand).filter(Boolean))];
+    $('#brandFilter').innerHTML = '<option value="all">全部品牌</option>' +
+      brands.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('');
+    const total = productList.reduce((s,p) => s + p.total_mentions, 0);
+    $('#snapshotName').textContent = 'All Products';
+    $('#snapshotDesc').textContent = `${productList.length} 个产品 · ${total} 次话题提及 · 多平台舆情`;
+    $('#hdrDate').textContent = '更新于 ' + new Date().toLocaleDateString('zh-CN');
+    renderProducts();
+  } catch (e) {
+    $('#productGrid').innerHTML = `<div class="error-box">数据加载失败:${esc(e.message)}<br>请检查 API_URL 是否已改为你的 Web App 地址,且部署权限为「所有人」。</div>`;
+  }
+  loadEvents(); loadNeedsPanel();
+}
+function renderProducts() {
+  const q = $('#search').value.trim().toLowerCase();
+  const cat = $('#category').value, brand = $('#brandFilter').value;
+  let arr = productList.filter(p =>
+    (!cat || cat==='all' || p.category===cat) &&
+    (!brand || brand==='all' || p.brand===brand) &&
+    (!q || (p.name + ' ' + p.aliases.join(' ') + ' ' + p.top_topics.map(t=>t.name).join(' ')).toLowerCase().includes(q)));
+  if (sortMode === 'name') arr = [...arr].sort((a,b) => a.name.localeCompare(b.name,'zh'));
+  $('#resultCount').textContent = `${arr.length} 个产品 · 按全历史累计话题提及排序`;
+  $('#productGrid').innerHTML = arr.length ? arr.map(p => `
+    <article class="product" data-id="${p.product_id}">
+      <div class="product-top"><div class="device">${iconOf(p)}</div><span class="type">${catNames[p.category]||p.category}</span>${p.official_url ? `<a class="prod-official" href="${esc(p.official_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">官网 ↗</a>` : ''}</div>
+      <h3>${esc(p.name)}</h3>
+      <div class="subname">${esc(p.aliases.slice(0,2).join(' / '))}</div>
+      <div class="mini-topics">${p.top_topics.slice(0,3).map(t=>`<span class="pill">${esc(t.name)}</span>`).join('')}</div>
+      <div class="product-foot"><span>${esc(p.brand)}</span><b>${p.total_mentions} 次提及</b></div>
+    </article>`).join('')
+    : '<div class="empty">没有找到匹配产品。试试更短的关键词,或切换品类 / 品牌。</div>';
+  document.querySelectorAll('.product').forEach(el => el.onclick = () => openProduct(el.dataset.id));
+}
+async function loadEvents() {
+  try {
+    const data = await api({action:'listEvents'});
+    const evs = data.events || [];
+    $('#eventList').innerHTML = evs.length ? evs.slice(0,6).map(ev => `
+      <div class="event"><div class="platform">${esc(platformShort(ev.type||''))}</div>
+        <div><h4>${esc(ev.title)}</h4><p>${esc(ev.summary||'')}</p></div>
+        <span class="tag">${esc(ev.product||'')}</span></div>`).join('')
+      : '<div class="empty">暂无事件</div>';
+  } catch(e) { $('#eventList').innerHTML = '<div class="empty">事件加载失败</div>'; }
+}
+async function loadNeedsPanel() {
+  try {
+    const data = await api({action:'listNeeds'});
+    const list = data.needs || [];
+    $('#topicList').innerHTML = list.length ? list.map(n => `
+      <div class="event">
+        <div class="platform">${esc((n.category||'需').slice(0,1))}</div>
+        <div><h4>${esc(n.category)} · 涉及 ${n.product_count} 个产品</h4>
+        <p>${esc((n.items[0]||{}).description || '')}</p></div>
+        <span class="tag">${n.count} 条反馈</span>
+      </div>`).join('')
+      : '<div class="empty">暂无诉求数据</div>';
+  } catch(e) { $('#topicList').innerHTML = '<div class="empty">诉求加载失败</div>'; }
+}
+
+/* ================= 详情页 ================= */
+async function openProduct(id) {
+  currentId = id;
+  $('#overviewView').style.display = 'none';
+  $('#detailView').style.display = 'block';
+  switchDView('dviewReviewSearch');
+  $('#detailName').textContent = '加载中…';
+  $('#detailSubtitle').textContent = '';
+  $('#detailTopics').innerHTML = $('#detailNeeds').innerHTML = $('#detailEvents').innerHTML = '<div class="skeleton">加载中…</div>';
+  $('#detailCompetitors').innerHTML = '';
+  $('#sentimentChart').innerHTML = '';
+  $('#allFeedback').innerHTML = '<div class="skeleton">加载中…</div>';
+  $('#reviewQuery').value = '';
+  $('#reviewSearchResults').innerHTML = '';
+  window.scrollTo({top:0,behavior:'smooth'});
+  try {
+    const p = await api({action:'getPage', id});
+    currentProduct = p;
+    const specs = p.official_specs || [];
+    $('#detailSpecs').innerHTML = specs.length ? `<div class="compare-table-wrap"><table class="compare-table"><thead><tr><th>参数</th><th>数值</th><th>状态</th><th>来源</th></tr></thead><tbody>${specs.map(sp=>`<tr><td>${esc(sp.spec_label||sp.spec_key)}</td><td>${esc(sp.value||'暂无数据')} ${esc(sp.unit||'')}</td><td>${esc(sp.verification_status||'needs_review')}</td><td>${sp.source_url?`<a href="${esc(sp.source_url)}" target="_blank" rel="noopener">官方页面 ↗</a>`:'未记录来源'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">暂无已采集的官方规格。新产品会进入规格任务队列；请确认官方 URL 和 AI 配置。</div>';
+    $('#detailCategory').textContent = 'PRODUCT PROFILE / ' + (catNames[p.category]||p.category||'').toUpperCase();
+    $('#detailName').textContent = p.name;
+    $('#detailSubtitle').textContent = (p.aliases||[]).slice(0,3).join(' / ');
+    const totalM = (p.top_topics||[]).reduce((s,t)=>s+(t.mention_count||0),0);
+    $('#ovKpis').innerHTML = `
+      <div class="ov-kpi"><span class="label">累计话题提及</span><strong>${totalM}</strong><small>全历史</small></div>
+      <div class="ov-kpi"><span class="label">在榜 Topics</span><strong>${(p.top_topics||[]).length}</strong><small>详见 Topic 分析</small></div>
+      <div class="ov-kpi"><span class="label">关联竞品</span><strong>${(p.competitors||[]).length}</strong><small>详见竞品分析</small></div>
+      <div class="ov-kpi"><span class="label">品牌 / 品类</span><strong style="font-size:15px">${esc(p.brand||'—')}</strong><small>${esc(catNames[p.category]||p.category||'')}</small></div>`;
+    // Topics(tab2)
+    $('#detailTopics').innerHTML = (p.top_topics||[]).length ? (() => {
+      const max = Math.max(...p.top_topics.map(t => t.mention_count || 0), 1);
+      return p.top_topics.map(t => {
+        const pct = Math.round((t.mention_count || 0) / max * 100);
+        const s = String(t.sentiment || '').toLowerCase();
+        const color = /neg|负|bad/.test(s) ? '#c87948' : /pos|正|good/.test(s) ? '#87a774' : '#b9c0b0';
+        return `
+      <div class="topic">
+        <div class="t-head"><b><span style="color:#9aa091;margin-right:8px">${String(t.rank).padStart(2,'0')}</span>${esc(t.name)}<span style="margin-left:8px;font-size:10px;color:#9aa091;font-weight:400">${t.mention_count} 次提及 · ${lbl[s]||'中性'}</span></b></div>
+        <div class="topic-bar"><i style="width:${pct}%;background:${color}"></i></div>
+        <p>${esc(t.summary)}</p>
+        ${(t.evidence||[]).map(e => `
+          <div class="quote">“${esc(e.quote)}”
+            <small>${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.source||'查看来源')}</a>` : esc(e.source||'原文评论')}${e.platform ? ' · ' + esc(e.platform) : ''}</small>
+          </div>`).join('')}
+      </div>`;
+      }).join('');
+    })() : '<p style="font-size:12px;color:var(--muted)">该产品暂无可归纳的话题。</p>';
+    // 竞品(tab4)
+    $('#detailCompetitors').innerHTML = (p.competitors||[]).length ? p.competitors.map(c => `
+      <div class="comp-block">
+        <div class="comp-head"><b>${esc(c.name)}</b><span class="comp-tag">关联提及</span></div>
+        <div class="comp-dims">比较维度:${esc((c.dimensions||[]).join('、')||'—')}</div>
+        ${c.summary ? `<p class="comp-summary"><b>比较摘要:</b>${esc(c.summary)}</p>` : ''}
+        ${(c.evidence||[]).map(e => `
+          <div class="quote">“${esc(e.quote)}”<small>${e.url ? `<a href="${esc(e.url)}" target="_blank">${esc(e.source||'查看来源')}</a>` : esc(e.source||'')}</small></div>`).join('')}
+      </div>`).join('')
+      : '<p style="font-size:12px;color:var(--muted);line-height:1.8">当前内容不足以确认直接竞品。这里保留为空,避免凭空补齐关系。</p>';
+  } catch (e) {
+    $('#detailName').textContent = '加载失败';
+    $('#detailTopics').innerHTML = `<div class="error-box">${esc(e.message)}</div>`;
+  }
+  loadDetailAux(id);
+}
+async function loadDetailAux(id) {
+  // 概览 tab:诉求 + 事件
+  try {
+    const det = await api({action:'getPage', id});
+    $('#detailNeeds').innerHTML = (det.user_needs||[]).length ? det.user_needs.slice(0,6).map(n => `
+      <div class="event">
+        <div class="platform">${esc((n.category||'需').slice(0,1))}</div>
+        <div><h4>${esc(n.category||'需求')}</h4><p>${esc(n.description||'')}</p></div>
+        <span class="tag">诉求</span>
+      </div>`).join('')
+      : '<div class="empty">该产品暂无归纳的诉求</div>';
+    $('#detailEvents').innerHTML = (det.events||[]).length ? det.events.map(ev => `
+      <div class="event"><div class="platform">${esc(platformShort(ev.type||''))}</div>
+        <div><h4>${esc(ev.title)}</h4><p>${esc(ev.summary||'')}</p></div>
+        <span class="tag">${esc(ev.date||'近期')}</span></div>`).join('')
+      : '<div class="empty">暂无相关事件</div>';
+  } catch(e) {
+    $('#detailNeeds').innerHTML = '<div class="empty">诉求加载失败</div>';
+    $('#detailEvents').innerHTML = '<div class="empty">事件加载失败</div>';
+  }
+  loadSentiment(id);
+  loadAllFeedback(id);
+}
+function switchDView(id) {
+  document.querySelectorAll('.dview').forEach(v => v.classList.toggle('active', v.id === id));
+  document.querySelectorAll('.dtab').forEach(t => t.classList.toggle('active', t.dataset.dview === id));
+}
+document.querySelectorAll('.dtab').forEach(t => t.onclick = () => switchDView(t.dataset.dview));
+
+/* 情绪分析(蓝版原型布局) */
+let sentiMode = 'ratio';
+async function loadSentiment(productId) {
+  const box = $('#sentimentChart');
+  try {
+    const data = await api({action:'topicSentiment', id: productId});
+    const list = data.topics || [];
+    // 整体指标行
+    const T = list.reduce((s,t) => ({pos:s.pos+t.pos, neg:s.neg+t.neg, neu:s.neu+t.neu, unk:s.unk+t.unknown}), {pos:0,neg:0,neu:0,unk:0});
+    const valid = T.pos + T.neg + T.neu;
+    const pct = v => valid ? Math.round(v / valid * 100) : 0;
+    $('#sentiKpis').innerHTML = `
+      <div class="senti-kpi"><span class="label">总反馈量</span><strong>${valid + T.unk}</strong><small>含无法判断 ${T.unk} 条</small></div>
+      <div class="senti-kpi"><span class="label">正面</span><strong class="up">${pct(T.pos)}%</strong><small>${T.pos} 条 · 认可与优势</small></div>
+      <div class="senti-kpi"><span class="label">负面</span><strong class="down">${pct(T.neg)}%</strong><small>${T.neg} 条 · 潜在痛点</small></div>
+      <div class="senti-kpi"><span class="label">中性 / 混合</span><strong>${pct(T.neu)}%</strong><small>${T.neu} 条 · 描述或分化</small></div>`;
+    // 环形图
+    const p1 = pct(T.pos), p2 = p1 + pct(T.neg);
+    $('#donut').style.background = valid
+      ? `conic-gradient(var(--pos) 0 ${p1}%, var(--neg) ${p1}% ${p2}%, var(--neu) ${p2}% 100%)` : '#edf0e6';
+    $('#donutTotal').textContent = valid + T.unk;
+    $('#donutPos').textContent = pct(T.pos) + '%';
+    $('#donutNeg').textContent = pct(T.neg) + '%';
+    $('#donutNeu').textContent = pct(T.neu) + '%';
+    if (!list.length) { box.innerHTML = '<div class="empty">暂无情绪数据(重新入库后生成)</div>'; $('#focusTopics').innerHTML=''; $('#insightText').innerHTML=''; return; }
+    // Topic 行
+    box.innerHTML = `<div class="st-row" style="color:#9aa091;font-size:10px;border:0;padding:4px 0">
+        <div>Topic</div><div class="st-count">反馈数</div><div>情绪${sentiMode === 'ratio' ? '比例' : '数量'}</div>
+        <div class="st-pct"><span class="p">正</span><span class="z">中</span><span class="g">负</span></div></div>` +
+      list.map((t, i) => {
+        const p = t.pct || {pos:0, neu:0, neg:0};
+        const vals = sentiMode === 'ratio' ? [p.pos, p.neu, p.neg] : [t.pos, t.neu, t.neg];
+        const sum = vals.reduce((a,b)=>a+b,0) || 1;
+        const w = vals.map(v => Math.round(v / sum * 100));
+        const seg = (key, color, count) => count
+          ? `<i style="width:${sentiMode==='ratio' ? p[key] : w[{pos:0,neu:1,neg:2}[key]]}%;background:${color}"
+               title="${lbl[key]} ${count} 条" onclick="showFeedback('${productId}','${t.topic_id}','${key}','${esc(t.name)}')"></i>` : '';
+        return `<div class="st-row">
+          <div class="st-name" title="${esc(t.name)}" onclick="showFeedback('${productId}','${t.topic_id}','','${esc(t.name)}')">${i+1}&nbsp;&nbsp;${esc(t.name)}${t.small_sample ? `<span class="sample-warn">n=${t.valid} · 仅供参考</span>` : ''}</div>
+          <div class="st-count">${t.valid}${t.unknown ? '<span style="color:#c0c6bb">+' + t.unknown + '</span>' : ''}</div>
+          <div class="st-stack">${seg('pos','#87a774',t.pos)}${seg('neu','#b9c0b0',t.neu)}${seg('neg','#c87948',t.neg)}</div>
+          <div class="st-pct"><span class="p">${p.pos}%</span><span class="z">${p.neu}%</span><span class="g">${p.neg}%</span></div>
+        </div>`;
+      }).join('');
+    // 重点 Topic(按负面占比)
+    $('#focusTopics').innerHTML = [...list].sort((a,b) => (b.pct?b.pct.neg:0) - (a.pct?a.pct.neg:0)).slice(0,3).map(t => `
+      <div class="focus-item">
+        <div class="focus-line"><span>${esc(t.name)}</span><span class="sent-badge ${(t.pct&&t.pct.neg)<25 ? 'good' : ''}">${t.pct ? t.pct.neg : 0}% 负面占比</span></div>
+        <p>有效反馈 ${t.valid} 条${t.small_sample ? '(样本较少)' : ''} · 点击左图色块查看原始反馈</p>
+      </div>`).join('');
+    // 核心洞察(自动生成)
+    const worst = [...list].sort((a,b)=>(b.pct?b.pct.neg:0)-(a.pct?a.pct.neg:0))[0];
+    const best = [...list].sort((a,b)=>(b.pct?b.pct.pos:0)-(a.pct?a.pct.pos:0))[0];
+    const smallN = list.filter(t => t.small_sample).length;
+    $('#insightText').innerHTML = [
+      worst && worst.pct ? `<li>「${esc(worst.name)}」负面占比最高(${worst.pct.neg}%),建议优先查看对应原始反馈。</li>` : '',
+      best && best.pct ? `<li>「${esc(best.name)}」正面占比最高(${best.pct.pos}%),是当前口碑优势信号。</li>` : '',
+      smallN ? `<li>${smallN} 个话题有效样本不足 5 条,比例仅供参考,随期数累积会趋于稳定。</li>` : '',
+      `<li>分母 = 可判断情绪的独立反馈数;「无法判断」不计入比例。</li>`
+    ].join('');
+  } catch (e) { box.innerHTML = '<div class="empty">情绪分布加载失败</div>'; }
+}
+async function showFeedback(productId, topicId, sentiment, topicName) {
+  const listEl = $('#feedbackList');
+  $('#fbDrillTitle').textContent = topicName + (sentiment ? ' · ' + (lbl[sentiment] || '') + '反馈' : ' · 全部反馈');
+  listEl.innerHTML = '<div class="skeleton">加载反馈…</div>';
+  try {
+    const items = sentiment
+      ? await api({action:'getFeedback', product_id: productId, topic_id: topicId, sentiment})
+      : await Promise.all(['positive','neutral','negative'].map(s =>
+          api({action:'getFeedback', product_id: productId, topic_id: topicId, sentiment: s}))).then(a => a.flat());
+    listEl.innerHTML = items.length ? items.map(f => `<div class="fb-item ${f.sentiment === 'negative' ? 'neg' : ''}">“${esc(f.quote)}”<br><small>${f.url ? `<a href="${esc(f.url)}" target="_blank">${esc(f.source || '查看来源')}</a>` : esc(f.source || '')}${f.confidence ? ' · 置信 ' + esc(f.confidence) : ''}</small></div>`).join('')
+      : '<div class="empty">该分类下暂无反馈</div>';
+  } catch (e) { listEl.innerHTML = '<div class="empty">反馈加载失败</div>'; }
+}
+document.querySelectorAll('#sentiMode button').forEach(b => b.onclick = () => {
+  sentiMode = b.dataset.mode;
+  document.querySelectorAll('#sentiMode button').forEach(x => x.classList.toggle('active', x === b));
+  if (currentId) loadSentiment(currentId);
+});
+/* 全部反馈 tab */
+async function loadAllFeedback(productId) {
+  const box = $('#allFeedback');
+  try {
+    const items = await api({action:'getFeedback', product_id: productId, topic_id: '', sentiment: fbSentiment || 'positive'});
+    box.innerHTML = items.length ? items.map(f => `<div class="fb-item ${f.sentiment === 'negative' ? 'neg' : ''}">“${esc(f.quote)}”<br><small>${f.url ? `<a href="${esc(f.url)}" target="_blank">${esc(f.source || '查看来源')}</a>` : esc(f.source || '')}${f.confidence ? ' · 置信 ' + esc(f.confidence) : ''}</small></div>`).join('')
+      : '<div class="empty">该分类下暂无反馈(反馈级数据在重新入库后逐步覆盖)</div>';
+  } catch (e) { box.innerHTML = '<div class="empty">反馈加载失败</div>'; }
+}
+document.querySelectorAll('#fbFilter button').forEach(b => b.onclick = () => {
+  fbSentiment = b.dataset.sent;
+  document.querySelectorAll('#fbFilter button').forEach(x => x.classList.toggle('active', x === b));
+  if (currentId) loadAllFeedback(currentId);
+});
+
+function back() {
+  currentProduct = null; currentId = null;
+  $('#detailView').style.display = 'none';
+  $('#overviewView').style.display = 'block';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+/* ================= 新增功能：评论检索与竞品对比 ================= */
+let lastCompareIds = [];
+function renderCompareResult(data) {
+  const box = $('#compareResults');
+  const resolutions = data.resolutions || [];
+  let html = '';
+  const unresolved = resolutions.filter(r => r.status !== 'matched');
+  if (unresolved.length) {
+    html += '<div class="error-box" style="text-align:left"><b>以下名称需要确认</b><div class="match-list">' +
+      unresolved.map((r,ri) => `<div class="match-chip"><strong>${esc(r.input)}</strong>${r.status==='not_found'?'未找到匹配产品':'存在多个可能型号'}${(r.candidates||[]).map(c=>`<button class="outline" style="display:block;margin-top:6px" data-resolve-name="${esc(c.name)}" data-resolve-input="${esc(r.input)}">${esc(c.name)}${c.brand?' · '+esc(c.brand):''}</button>`).join('')||'<small>请先在产品目录中确认该产品是否已入库。</small>'}</div>`).join('') +
+      '</div><p style="margin:10px 0 0">点击候选项可将正式名称替换输入，之后重新生成对比。</p></div>';
+  }
+  const products = data.products || [];
+  if (products.length) {
+    const keys = [];
+    products.forEach(p => (p.specs||[]).forEach(s => { if(s.spec_key && !keys.includes(s.spec_key)) keys.push(s.spec_key); }));
+    const labelByKey = {};
+    products.forEach(p => (p.specs||[]).forEach(s => { labelByKey[s.spec_key] = s.spec_label || s.spec_key; }));
+    html += `<div class="match-list">${products.map(p=>`<div class="match-chip"><strong>${esc(p.name)}</strong>${esc(p.brand||'')}${p.official_url?`<small><a href="${esc(p.official_url)}" target="_blank" rel="noopener">官方页面 ↗</a></small>`:''}</div>`).join('')}</div>`;
+    if (keys.length) {
+      html += '<div class="compare-table-wrap"><table class="compare-table"><thead><tr><th>规格</th>' + products.map(p=>`<th>${esc(p.name)}</th>`).join('') + '</tr></thead><tbody>';
+      keys.forEach(k => {
+        html += `<tr><td>${esc(labelByKey[k]||k)}</td>` + products.map(p => {
+          const spec = (p.specs||[]).find(s=>s.spec_key===k);
+          return `<td>${spec ? `${esc(spec.value||'暂无数据')}${spec.unit?' '+esc(spec.unit):''}<small class="spec-source">${spec.source_url?`<a href="${esc(spec.source_url)}" target="_blank" rel="noopener">官方来源 ↗</a>`:''}${spec.fetched_at?' · 更新 '+esc(String(spec.fetched_at).slice(0,10)):''}${spec.verification_status==='ai_extracted_unverified'?' · AI 提取待核验':''}</small>` : '暂无数据'}</td>`;
+        }).join('') + '</tr>';
+      });
+      html += '</tbody></table></div>';
+    } else {
+      html += '<div class="empty" style="margin-top:12px">产品已匹配，但规格数据库暂时没有数据。请为 Products 表填写官方产品 URL，再点击“重新获取官网规格”。</div>';
+    }
+    lastCompareIds = products.map(p=>p.product_id).filter(Boolean);
+    $('#compareRefresh').disabled = !lastCompareIds.length;
+  } else if (!unresolved.length) {
+    html += '<div class="empty">没有可用于对比的产品。</div>';
+  }
+  if (data.message) html += `<div class="feature-note">${esc(data.message)}</div>`;
+  box.innerHTML = html;
+}
+async function runCompare() {
+  const names = $('#compareNames').value.trim();
+  if (!names) { toast('请先输入产品名称'); return; }
+  $('#compareResults').innerHTML = '<div class="skeleton">正在匹配产品并读取已存储规格…</div>';
+  try {
+    const data = await api({action:'compareProducts', names});
+    renderCompareResult(data);
+  } catch(e) { $('#compareResults').innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
+}
+$('#compareRun').addEventListener('click', runCompare);
+$('#compareResults').addEventListener('click', e => {
+  const btn = e.target.closest('[data-resolve-name]');
+  if (!btn) return;
+  const original = btn.dataset.resolveInput;
+  const canonical = btn.dataset.resolveName;
+  const lines = $('#compareNames').value.split(/\n|,|，|;|；/).map(s=>s.trim());
+  const idx = lines.findIndex(s=>s===original);
+  if (idx >= 0) lines[idx] = canonical;
+  $('#compareNames').value = lines.filter(Boolean).join('\n');
+  toast('已替换为正式产品名称，请重新生成对比');
+});
+$('#compareRefresh').addEventListener('click', async () => {
+  if (!lastCompareIds.length) return;
+  $('#compareResults').insertAdjacentHTML('afterbegin','<div class="skeleton">正在访问已登记的官方产品页面并解析规格…</div>');
+  try {
+    const result = await api({action:'refreshProductSpecs', ids:lastCompareIds.join(',')});
+    const lines = (result.results||[]).map(r => `${r.name||r.product_id}: ${r.status==='updated'?'已获取 '+r.count+' 项规格':r.message||r.status}`);
+    toast(lines.join('；') || '处理完成');
+    await runCompare();
+  } catch(e) { toast('获取规格失败：'+e.message); }
+});
+let reviewState = { page: 1, pageSize: 20 };
+async function runReviewSearch(page) {
+  if (!currentId) return;
+  const q = $('#reviewQuery').value.trim();
+  if (!q) { toast('请输入检索关键词'); return; }
+  reviewState.page = page ? Number(page) : 1;
+  const box = $('#reviewSearchResults');
+  box.innerHTML = '<div class="skeleton">正在检索真实评论…</div>';
+  try {
+    const data = await api({action:'searchReviews', id:currentId, q, sentiment:$('#reviewSentiment').value, dateFrom:$('#reviewDateFrom').value, dateTo:$('#reviewDateTo').value, page:reviewState.page, pageSize:reviewState.pageSize});
+    const results = data.results || [];
+    const total = Number(data.total || results.length || 0);
+    const totalPages = Math.max(1, Math.ceil(total / reviewState.pageSize));
+    const pager = total > reviewState.pageSize ? `
+      <div class="review-pager">
+        <button class="feature-btn" data-review-page="${reviewState.page - 1}" ${reviewState.page <= 1 ? 'disabled' : ''}>上一页</button>
+        <span>第 ${reviewState.page} / ${totalPages} 页</span>
+        <button class="feature-btn" data-review-page="${reviewState.page + 1}" ${reviewState.page >= totalPages ? 'disabled' : ''}>下一页</button>
+      </div>` : '';
+    box.innerHTML = `<div class="panel-title"><h3>检索结果 · ${total} 条</h3><span>关键词优先 · 按相关度排序</span></div>` +
+      (results.length ? results.map(f=>`<div class="review-result ${f.sentiment==='negative'?'negative':''}">
+        <div class="review-meta"><span class="match-badge ${f.match_type==='semantic'?'semantic':''}">${f.match_type==='semantic'?'语义匹配':f.match_type==='synonym'?'同义词匹配':'关键词匹配'}</span>${(f.matched_topics||[]).map(t=>`<span class="comp-tag">${esc(t)}</span>`).join('')}<span class="comp-tag">${esc(lbl[f.sentiment]||'情绪未知')}</span><span class="comp-tag">相关度 ${Math.round((f.relevance||0)*100)}%</span></div>
+        <blockquote>${highlightReviewText(f.quote, f.matched_terms || [])}</blockquote><small>${esc(f.reason||'')} · ${esc(f.source||'未记录来源')}${f.published_at?' · '+esc(String(f.published_at).slice(0,10)):''}${f.platform?' · '+esc(f.platform):''}${f.url?` · <a href="${esc(f.url)}" target="_blank" rel="noopener">查看来源 ↗</a>`:''}</small>
+      </div>`).join('') : '<div class="empty">没有找到匹配评论。请尝试更宽泛的表达或调整筛选条件。</div>') +
+      pager +
+      (data.note?`<div class="feature-note">${esc(data.note)}</div>`:'');
+  } catch(e) { box.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
+}
+$('#reviewSearchResults').addEventListener('click', e => {
+  const btn = e.target.closest('[data-review-page]');
+  if (!btn || btn.disabled) return;
+  runReviewSearch(Number(btn.dataset.reviewPage));
+});
+$('#reviewSearchRun').addEventListener('click', () => runReviewSearch(1));
+$('#reviewQuery').addEventListener('keydown', e => { if(e.key==='Enter') runReviewSearch(1); });
+$('#reviewSentiment').addEventListener('change', () => { if($('#reviewQuery').value.trim()) runReviewSearch(1); });
+$('#reviewDateFrom').addEventListener('change', () => { if($('#reviewQuery').value.trim()) runReviewSearch(1); });
+$('#reviewDateTo').addEventListener('change', () => { if($('#reviewQuery').value.trim()) runReviewSearch(1); });
+document.querySelectorAll('[data-review-query]').forEach(b => b.addEventListener('click', () => { $('#reviewQuery').value=b.dataset.reviewQuery; runReviewSearch(1); }));
+
+/* ================= 交互绑定 ================= */
+let sortMode = 'relevant';
+$('#search').addEventListener('input', renderProducts);
+$('#category').addEventListener('change', renderProducts);
+$('#brandFilter').addEventListener('change', renderProducts);
+$('#backBtn').onclick = back;
+document.querySelectorAll('#sortTabs button').forEach(b => b.onclick = () => {
+  sortMode = b.dataset.sort;
+  document.querySelectorAll('#sortTabs button').forEach(x => x.classList.toggle('active', x===b));
+  renderProducts();
+});
+document.querySelectorAll('.nav[data-focus]').forEach(n => n.onclick = () => {
+  $('#category').value = n.dataset.focus;
+  document.querySelectorAll('.nav').forEach(x => x.classList.remove('active'));
+  n.classList.add('active');
+  back(); renderProducts();
+  $('#overviewView').scrollIntoView({behavior:'smooth'});
+});
+document.querySelector('[data-page="overview"]').onclick = () => {
+  back();
+  document.querySelectorAll('.nav').forEach(x => x.classList.remove('active'));
+  document.querySelector('[data-page="overview"]').classList.add('active');
+  $('#category').value = 'all'; renderProducts();
+};
+$('#eventsNav').onclick = () => { back(); setTimeout(()=>$('#lowerPanels').scrollIntoView({behavior:'smooth'}),50); };
+$('#copyProduct').onclick = () => {
+  if (!currentProduct) return;
+  const p = currentProduct;
+  const text = `${p.name}(${(p.aliases||[]).join(' / ')})\n` +
+    `Top Topics:\n${(p.top_topics||[]).map(t => `${t.rank}. ${t.name}:${t.summary}`).join('\n')}\n` +
+    `竞品:${(p.competitors||[]).map(c => c.name).join('、') || '未确认'}`;
+  navigator.clipboard?.writeText(text).then(()=>toast('产品摘要已复制')).catch(()=>toast(text));
+};
+function toast(t){ const el=$('#toast'); el.textContent=t; el.style.display='block'; setTimeout(()=>el.style.display='none',3000); }
+
+loadOverview();
+</script></body></html>

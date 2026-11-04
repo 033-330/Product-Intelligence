@@ -44,17 +44,82 @@ function isAllowedOfficialProductUrl_(url) {
   } catch(e) { return false; }
 }
 
+// 按品牌名选主域名，搜索查询只限定品牌相关站点，避免 20 个 site: OR 稀释产品名权重。
+function detectBrandDomains_(productName) {
+  var s = String(productName || '').toLowerCase();
+  if (/^logitech\s*g\b|logitechg/.test(s)) return ['logitechg.com', 'logitech.com'];
+  if (/^logitech\b/.test(s)) return ['logitech.com', 'logitechg.com'];
+  if (/^razer\b/.test(s)) return ['razer.com'];
+  if (/^steelseries\b/.test(s)) return ['steelseries.com'];
+  if (/^corsair\b/.test(s)) return ['corsair.com'];
+  if (/^hyperx\b/.test(s)) return ['hyperx.com'];
+  if (/^sony\b/.test(s)) return ['sony.com'];
+  if (/^asus\b|^rog\b/.test(s)) return ['asus.com', 'rog.asus.com'];
+  if (/^apple\b/.test(s)) return ['apple.com'];
+  if (/^dell\b|^alienware\b/.test(s)) return ['dell.com', 'alienware.com'];
+  if (/^hp\b/.test(s)) return ['hp.com'];
+  if (/^lenovo\b/.test(s)) return ['lenovo.com'];
+  if (/^msi\b/.test(s)) return ['msi.com'];
+  if (/^acer\b/.test(s)) return ['acer.com'];
+  if (/^samsung\b/.test(s)) return ['samsung.com'];
+  if (/^microsoft\b/.test(s)) return ['microsoft.com'];
+  if (/^bose\b/.test(s)) return ['bose.com'];
+  if (/^sennheiser\b/.test(s)) return ['sennheiser-hearing.com'];
+  if (/^jbl\b/.test(s)) return ['jbl.com'];
+  if (/^audio.?technica\b/.test(s)) return ['audio-technica.com'];
+  if (/^shure\b/.test(s)) return ['shure.com'];
+  if (/^keychron\b/.test(s)) return ['keychron.com'];
+  if (/^wooting\b/.test(s)) return ['wooting.com'];
+  return OFFICIAL_PRODUCT_DOMAINS_.slice(0, 6);
+}
+
+// URL slug 猜测：针对 URL 规律已知的品牌站，零搜索成本，命中率最高。
+// logitechg/logitech 产品页模式：/en-us/shop/p/{slug} 或 .html
+function guessProductUrlCandidates_(productName) {
+  var raw = String(productName || '').toLowerCase().trim();
+  if (!raw) return [];
+  var stripped = raw.replace(/^(logitech\s*g|logitech|razer|steelseries|corsair|hyperx|sony|asus|rog|apple|dell|alienware|hp|lenovo|msi|acer|samsung|microsoft|bose|sennheiser|jbl|audio-technica|shure|keychron|wooting)\s+/i, '').trim();
+  if (!stripped) return [];
+
+  function toSlug(s) { return s.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); }
+
+  var slugs = [toSlug(stripped)];
+  var noCat = stripped.replace(/\s+(gaming\s+)?(mouse|keyboard|headset|headphones|earbuds|speaker|microphone|camera|webcam)$/i, '').trim();
+  if (noCat && noCat !== stripped) slugs.push(toSlug(noCat));
+  var noWireless = stripped.replace(/\s+(wireless|wired|bluetooth)\s*/gi, ' ').trim();
+  if (noWireless && noWireless !== stripped) slugs.push(toSlug(noWireless));
+
+  var seen = {};
+  var out = [];
+  slugs.forEach(function(slug) {
+    if (!slug || seen[slug]) return;
+    seen[slug] = 1;
+    out.push('https://www.logitechg.com/en-us/shop/p/' + slug + '.html');
+    out.push('https://www.logitechg.com/en-us/shop/p/' + slug);
+    out.push('https://www.logitech.com/en-us/shop/p/' + slug + '.html');
+    out.push('https://www.logitech.com/en-us/shop/p/' + slug);
+  });
+  return out;
+}
+
 function searchOfficialProductCandidates_(productName) {
   var q = String(productName || '').trim();
   if (!q) return [];
-  var domainQuery = OFFICIAL_PRODUCT_DOMAINS_.slice(0, 20).map(function(d){return 'site:'+d;}).join(' OR ');
-  var query = q + ' product specifications official website (' + domainQuery + ')';
+
+  // 1) slug 猜测候选排最前：零搜索成本，verifyProductUrl_ 会逐个 fetch 验证存在性。
+  var slugCandidates = guessProductUrlCandidates_(q);
+  var all = [], seenAll = {};
+  slugCandidates.forEach(function(u) { if (!seenAll[u]) { seenAll[u] = 1; all.push(u); } });
+
+  // 2) 搜索引擎：精确产品名 + 限定品牌主域名 + buy 引导产品页，避免分类页/旧款。
+  var brandDomains = detectBrandDomains_(q);
+  var domainQuery = brandDomains.map(function(d){return 'site:'+d;}).join(' OR ');
+  var query = '"' + q + '" (' + domainQuery + ') buy';
   var engines = [
     'https://www.google.com/search?num=10&q=' + encodeURIComponent(query),
     'https://www.bing.com/search?count=10&q=' + encodeURIComponent(query),
-    'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query)
+    'https://www.html.duckduckgo.com/html/?q=' + encodeURIComponent(query)
   ];
-  var all = [], seenAll = {};
   for (var e=0;e<engines.length;e++) {
     try {
       var response = UrlFetchApp.fetch(engines[e], {muteHttpExceptions:true, followRedirects:true,
@@ -91,7 +156,21 @@ function searchOfficialProductCandidates_(productName) {
       });
     } catch(ignore) { /* try next public search engine */ }
   }
-  all.sort(function(a,b){
+  // 三个搜索引擎都拿不到可用链接时（常见于 GAS 出口被拦或结果页是 JS 渲染），用 Crawl4AI 渲染搜索结果页兜底。
+  if (all.length <= slugCandidates.length && typeof crawl4aiCanRender_ === 'function' && crawl4aiCanRender_()) {
+    try {
+      crawl4aiDiscoverOfficialUrls_(query).forEach(function(u) {
+        if (!seenAll[u]) { seenAll[u] = true; all.push(u); }
+      });
+    } catch (e) { Logger.log('Crawl4AI 搜索结果兜底失败：' + String(e).slice(0, 200)); }
+  }
+
+  // 搜索结果按产品页特征排序；slug 候选已在最前，不参与重排。
+  var slugSet = {};
+  slugCandidates.forEach(function(u) { slugSet[u] = 1; });
+  var slugPart = all.filter(function(u) { return slugSet[u]; });
+  var searchPart = all.filter(function(u) { return !slugSet[u]; });
+  searchPart.sort(function(a,b){
     function score(u){var path=(u.split('/').slice(3).join('/')||'').toLowerCase(); var n=0;
       if (/product|products|gaming|mouse|keyboard|headset|spec|p\//.test(path)) n+=3;
       if (/support|search|category|accessories/.test(path)) n-=2;
@@ -99,15 +178,27 @@ function searchOfficialProductCandidates_(productName) {
       return n;}
     return score(b)-score(a);
   });
-  var productLike = all.filter(function(u){ return /^https:\/\//i.test(u) && u.split('/').length > 4; });
-  return (productLike.length ? productLike : all).slice(0, 10);
+  var productLike = searchPart.filter(function(u){ return /^https:\/\//i.test(u) && u.split('/').length > 4; });
+  return slugPart.concat(productLike.length ? productLike : searchPart).slice(0, 12);
 }
+
 
 function searchOfficialProductPage_(productName) {
   return searchOfficialProductCandidates_(productName)[0] || null;
 }
 
+/**
+ * 规格页面抓取入口：按 activeSpecCrawler_() 分派。
+ * crawl4ai → Crawl4AI Cloud /extract（可渲染 JS 页面，自带 LLM 抽取，不需要 Gemini Key）
+ * urlfetch → 本地抓 HTML + Gemini/OpenRouter 抽取（无 Crawl4AI Key 时的回退）
+ * 两条路径输出结构一致，saveOfficialSpecs_() 无需区分。
+ */
 function extractOfficialSpecs_(productName, url) {
+  if (activeSpecCrawler_() === 'crawl4ai') return extractSpecsViaCrawl4AI_(productName, url);
+  return extractOfficialSpecsViaFetch_(productName, url);
+}
+
+function extractOfficialSpecsViaFetch_(productName, url) {
   if (!isAllowedOfficialProductUrl_(url)) throw new Error('搜索结果不是允许访问的品牌官网');
   var response = UrlFetchApp.fetch(url, {muteHttpExceptions:true, followRedirects:true,
     headers:{'User-Agent':'Mozilla/5.0 (compatible; ProductIntelligence/1.0)'}});
@@ -219,10 +310,11 @@ function processSpecificationTasks_(limit) {
     try {
       var p=products.filter(function(x){return String(x.product_id)===String(t.product_id);})[0];
       if(!p)throw new Error('产品记录不存在');
-      if(!hasConfiguredAIKey_())throw new Error('未配置 AI API Key；任务保留为可重试状态');
+      // Crawl4AI 路径自带 LLM 抽取，不需要 Gemini/OpenRouter Key。
+      if(activeSpecCrawler_()==='urlfetch' && !hasConfiguredAIKey_())throw new Error('未配置 AI API Key；任务保留为可重试状态');
       var url=resolveOfficialUrl_(p);
       var parsed=extractOfficialSpecs_(String(p.brand||'')+' '+String(p.canonical_name||''),url);
-      var saved=saveOfficialSpecs_(p,url,parsed,'official_page_ai_parser_v1');
+      var saved=saveOfficialSpecs_(p,url,parsed,specParserName_());
       updateSpecificationTask_(t.task_id,{status:'done',finished_at:new Date().toISOString(),source_url:url,last_error:'',task_notes:'采集完成：'+saved.count+' 项规格'});
       results.push({task_id:t.task_id,product_id:p.product_id,status:'done',count:saved.count,url:url});
     } catch(e) {
@@ -239,7 +331,7 @@ function processSpecificationTasks_(limit) {
 function refreshProductSpecifications_(idsRaw) {
   var ids = String(idsRaw || '').split(',').map(function(s){return s.trim();}).filter(Boolean);
   if (!ids.length) throw new Error('缺少产品 ID');
-  if (!hasConfiguredAIKey_()) throw new Error('请先在 Script Properties 中配置 GEMINI_API_KEY 或 OPENROUTER_API_KEY');
+  if (activeSpecCrawler_() === 'urlfetch' && !hasConfiguredAIKey_()) throw new Error('请先在 Script Properties 中配置 CRAWL4AI_API_KEY，或 GEMINI_API_KEY / OPENROUTER_API_KEY');
   var products = readTable('Products').filter(function(p){
     return ids.indexOf(String(p.product_id)) >= 0 && p.status !== 'merged' && p.category !== 'brand';
   });
@@ -248,7 +340,7 @@ function refreshProductSpecifications_(idsRaw) {
     try {
       var url = resolveOfficialUrl_(p);
       var live = extractOfficialSpecs_(String(p.brand||'')+' '+String(p.canonical_name||''), url);
-      var saved = saveOfficialSpecs_(p, url, live, 'official_page_ai_parser_v1');
+      var saved = saveOfficialSpecs_(p, url, live, specParserName_());
       updated.push({product_id:p.product_id, name:p.canonical_name, status:'updated', count:saved.count, source_url:url, fetched_at:saved.fetched_at});
     } catch(e) {
       updated.push({product_id:p.product_id, name:p.canonical_name, status:'error', message:String(e).slice(0,220)});

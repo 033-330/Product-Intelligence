@@ -1,0 +1,15 @@
+# Local clasp credentials / project binding
+.clasprc.json
+.clasp.json
+
+# IDE / runtime artifacts
+.arts/
+.codeartsdoer/
+.merkle-snapshot.json
+*.xlsx
+*.log
+node_modules/
+
+# Local OS files
+.DS_Store
+Thumbs.db
