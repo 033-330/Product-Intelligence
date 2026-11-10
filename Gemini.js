@@ -133,6 +133,7 @@ function callGeminiProvider_(prompt, schema, opts) {
           provider: 'gemini', model: model, finishReason: finish,
           thoughts: usage.thoughtsTokenCount || 0,
           outputTokens: usage.candidatesTokenCount || 0,
+          inputTokens: usage.promptTokenCount || 0,
           truncated: false
         };
         try {
@@ -180,6 +181,7 @@ function callOpenRouterProvider_(prompt, schema, opts) {
     finishReason: result.finishReason || '',
     thoughts: 0,
     outputTokens: (result.usage && result.usage.completion_tokens) || 0,
+    inputTokens: (result.usage && result.usage.prompt_tokens) || 0,
     truncated: false
   };
   try {
@@ -356,20 +358,6 @@ const PASS_A_SCHEMA = {
         required: ['name_as_written', 'topics'],
       },
     },
-    events: {
-      type: 'ARRAY',
-      items: {
-        type: 'OBJECT',
-        properties: {
-          product_name: { type: 'STRING' },
-          event_date:   { type: 'STRING' },
-          type:         { type: 'STRING' },
-          title:        { type: 'STRING' },
-          summary:      { type: 'STRING' },
-        },
-        required: ['product_name', 'title'],
-      },
-    },
     general_discussion: {
       type: 'ARRAY',
       items: {
@@ -382,7 +370,7 @@ const PASS_A_SCHEMA = {
       },
     },
   },
-  required: ['products', 'events'],
+  required: ['products'],
 };
 
 function buildPassAPrompt_(doc, text) {
@@ -398,8 +386,8 @@ function buildPassAPrompt_(doc, text) {
     '5. evidence:必须是 text 中原文的逐字摘录(不超过80字),用于支撑该话题与情感。禁止改写、禁止编造。找不到原文证据的话题不要输出。',
     '6. user_needs:只抽「真正的用户诉求 / 痛点 / 购买顾虑」——用户想要什么、担心什么、什么阻碍了他购买或使用(如:希望降价、预算有限、担心误触、需要更轻、不适应某手感、担心质量)。严格判别:如果一句话是在评价产品现有功能的表现好坏(如「续航实测掉电14%」「手感扎实」「听声辨位准」),这是卖点评价,属于 topics(已带 sentiment),不要放进 user_needs。每条加 need_type:need=诉求;万一抽到卖点评价标 evaluation。',
     '7. competitor_mentions:文中将本产品与其他产品做比较时填写。dimensions 从 [价格,性能,手感,设计,续航,品控,重量,传感器,麦克风,连接] 中选取;competitor_summary 用一句话写清本次比较的结论(如「续航与重量均被质疑,价格更贵」)。被比较的产品即使是竞品品牌也要填写。',
-    '8. events:文中提到的具体事件(新品发布/固件更新/降价/实测结果等)。event_date 仅在文中给出含年份的完整日期时填 YYYY-MM-DD,否则填空字符串(如只有「10月6日」没有年份,就填空)。',
-    '9. 无法归属到任何具体产品的一般性讨论放入 general_discussion,不要硬塞给某个产品。',
+    '8. general_discussion:无法归属到任何具体产品的一般性讨论(行业趋势、技术路线、市场现象、非产品专属话题)。每条必须有原文 evidence;topic 是短标题,summary 用 1-2 句概括。不要硬塞给某个产品。',
+    '9. 以【上文衔接，仅供理解，不要重复抽取】开头的内容只作上下文理解,禁止从中抽取产品或反馈。',
     '10. 若全文没有可抽取内容,返回空 products 数组,不要编造。',
     '',
     '【文档信息】',

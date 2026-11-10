@@ -27,17 +27,32 @@ function ensureIssue_(issueNo, date, rawRef) {
  */
 function upsertDocument_(issueNo, seg, fallbackDate) {
   const rows = readTable('Documents');
-  const key = r => String(r.issue_no) === String(issueNo)
+  const segId = String(seg.segment_id || '');
+  const legacyKey = r => String(r.issue_no) === String(issueNo)
       && String(r.url || '') === String(seg.url || '')
       && String(r.title || '') === String(seg.title || '');
-  const existing = rows.find(key);
+  const existing = (segId && rows.filter(function(r) {
+    return String(r.segment_id || '') === segId;
+  })[0]) || rows.filter(legacyKey)[0];
   const text = String(seg.text || '');
+  const extra = {
+    segment_id: segId,
+    content_hash: String(seg.content_hash || ''),
+    parent_section: String(seg.parent_section || ''),
+    start_offset: seg.start_offset != null ? seg.start_offset : '',
+    end_offset: seg.end_offset != null ? seg.end_offset : '',
+    segment_type: String(seg.segment_type || ''),
+  };
   if (existing) {
     const sh = sheet_('Documents');
     const rowIdx = rows.indexOf(existing) + 2;
-    const set = (col, val) => sh.getRange(rowIdx, SHEET_DEFS.Documents.indexOf(col) + 1).setValue(val);
+    const set = (col, val) => {
+      const colIdx = SHEET_DEFS.Documents.indexOf(col);
+      if (colIdx >= 0) sh.getRange(rowIdx, colIdx + 1).setValue(val);
+    };
     set('text', text.slice(0, 45000));
     set('char_count', text.length);
+    Object.keys(extra).forEach(function(k) { set(k, extra[k]); });
     if (seg.comment_count != null) set('comment_count', seg.comment_count);
     return existing;
   }
@@ -54,16 +69,22 @@ function upsertDocument_(issueNo, seg, fallbackDate) {
     char_count: text.length,
     text: text.slice(0, 45000),
     created_at: new Date().toISOString(),
+    segment_id: extra.segment_id,
+    content_hash: extra.content_hash,
+    parent_section: extra.parent_section,
+    start_offset: extra.start_offset,
+    end_offset: extra.end_offset,
+    segment_type: extra.segment_type,
   });
-  return readTable('Documents').find(key);
+  return readTable('Documents').find(legacyKey);
 }
 
 /* ---------- 判重集合(本次运行内有效,随写随加) ---------- */
 
 function buildDedupSets_() {
   const s = {
-    needs: new Set(), comps: new Set(), events: new Set(), feedback: new Set(),
-    needRows: {}
+    needs: new Set(), comps: new Set(), feedback: new Set(),
+    discussions: new Set(), needRows: {}
   };
 
   readTable('Feedback').forEach(function(f) {
@@ -94,12 +115,11 @@ function buildDedupSets_() {
     s.comps.add([c.doc_id, c.product_id, c.competitor_id].join('|'));
   });
 
-  readTable('Events').forEach(function(ev) {
-    s.events.add([
-      ev.doc_id, ev.product_id,
-      String(ev.type || '') + '|' + String(ev.title || '').slice(0, 12)
-    ].join('|'));
-  });
+  try {
+    readTable('General_Discussions').forEach(function(d) {
+      if (d.content_hash) s.discussions.add(String(d.content_hash));
+    });
+  } catch (e) {}
   return s;
 }
 
@@ -147,6 +167,65 @@ function isLikelyProductEntity_(name) {
   return true;
 }
 
+/** 仅用于生成候选名称：剥离 AI 标注后缀与多余空白，不代表名称已可信。 */
+function cleanProductName_(name) {
+  return String(name || '')
+    .replace(/\s*[(（]\s*(?:hypothetical|假设|推测|猜测|未知|tentative|placeholder|未确认)\s*[)）]\s*/gi, '')
+    .replace(/\s*[(（]\s*[^)）]*(?:hypothetical|假设|推测|猜测|未知|tentative|placeholder|未确认)[^)）]*\s*[)）]\s*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * 产品名称写入前强制校验（V2.1 P0-2）。
+ * 返回 { ok, name, reason, existingId?, source }。
+ * sourceText 为空时跳过“必须出现在原文”的校验，仅保留实体类型与重复校验。
+ */
+function validateProductNameBeforeWrite_(candidate, opts) {
+  opts = opts || {};
+  const written = String(opts.nameAsWritten || candidate || '').trim();
+  const guess = String(opts.canonicalGuess || '').trim();
+  const sourceText = String(opts.sourceText || '');
+  const selfId = String(opts.selfProductId || '');
+  const existing = opts.existingProducts || readTable('Products');
+
+  // 原始候选里出现 AI 标注后缀，直接拒绝，不能先清洗再判断。
+  if (/[(（]\s*(?:hypothetical|假设|推测|猜测|未知|tentative|placeholder|未确认)\s*[)）]/i.test(String(candidate || ''))) {
+    return { ok: false, name: cleanProductName_(candidate), reason: '名称含 AI 标注后缀' };
+  }
+
+  const cleaned = cleanProductName_(candidate);
+  if (!cleaned) return { ok: false, name: '', reason: '名称为空' };
+  if (cleaned.length > 80) return { ok: false, name: cleaned, reason: '名称过长（>80 字符）' };
+  if (/[<>]|https?:\/\//i.test(cleaned)) return { ok: false, name: cleaned, reason: '名称含 HTML 或 URL' };
+  if (!isLikelyProductEntity_(cleaned)) {
+    return { ok: false, name: cleaned, reason: '疑似品牌名/品类名/功能名/技术名' };
+  }
+
+  // 原文可追溯：name_as_written 或 canonical_guess 至少一个能在原文中找到。
+  let source = 'no_source_check';
+  if (sourceText) {
+    const hay = normalizeAlias(sourceText);
+    const writtenHit = written && hay.indexOf(normalizeAlias(written)) >= 0;
+    const guessHit = guess && hay.indexOf(normalizeAlias(guess)) >= 0;
+    if (!writtenHit && !guessHit) {
+      return { ok: false, name: cleaned, reason: '名称未在原文中出现，无法追溯' };
+    }
+    source = writtenHit ? 'name_as_written' : 'canonical_guess_in_source';
+  }
+
+  // 与现有产品同名：交给上层复用字典中的 canonical_name，不新建、不覆盖。
+  const dup = existing.filter(function(p) {
+    return String(p.product_id) !== selfId
+      && normalizeAlias(p.canonical_name) === normalizeAlias(cleaned);
+  })[0];
+  if (dup) {
+    return { ok: false, name: cleaned, reason: '与现有产品同名', existingId: String(dup.product_id) };
+  }
+
+  return { ok: true, name: cleaned, reason: '通过', source: source };
+}
+
 function matchProductRule_(name, aliasIndex) {
   // 仅精确匹配:子串匹配会把 GPW5 误并入 GPW5 Ultra、PRO X 3 误并入鼠标
   var candidate = String(name || '').trim();
@@ -176,7 +255,8 @@ function addAlias_(alias, productId) {
   }
 }
 
-function createProduct_(name, brand, category, issueNo) {
+function createProduct_(name, brand, category, issueNo, opts) {
+  opts = opts || {};
   const id = nextId('PROD', 'Products', 'product_id');
   appendRow('Products', {
     product_id: id,
@@ -186,12 +266,27 @@ function createProduct_(name, brand, category, issueNo) {
     first_seen_issue: issueNo,
     status: 'auto',
     created_at: new Date().toISOString(),
+    official_url: '',
+    official_url_status: 'pending',
+    official_url_checked_at: '',
+    official_url_notes: opts.nameSource ? ('name_source=' + opts.nameSource) : '',
   });
   addAlias_(name, id);
+  if (opts.nameAsWritten && normalizeAlias(opts.nameAsWritten) !== normalizeAlias(name)) {
+    addAlias_(opts.nameAsWritten, id);
+  }
+  // P0-1：创建后立即进入异步 URL 验证队列，不在写入路径同步抓取。
+  if (typeof enqueueUrlVerificationTask_ === 'function') {
+    try {
+      enqueueUrlVerificationTask_(id, '', 3);
+    } catch (e) {
+      Logger.log('URL 验证任务入队失败：' + String(e));
+    }
+  }
   return id;
 }
 
-function resolveProducts_(extracts, issueNo) {
+function resolveProducts_(extracts, issueNo, sourceText) {
   const aliasIndex = buildAliasIndex_();
   const unresolved = [];
   const filtered = [];
@@ -219,8 +314,9 @@ function resolveProducts_(extracts, issueNo) {
     mapping.forEach(m => { mapByName[m.name] = m; });
 
     // 产品库快照:Gemini 返回的 ID 必须真实存在,否则视为幻觉按 NEW 处理(空库时尤其重要)
+    const productRows = readTable('Products');
     const validIds = {};
-    readTable('Products').forEach(p => validIds[p.product_id] = 1);
+    productRows.forEach(p => validIds[p.product_id] = 1);
 
     unresolved.forEach(x => {
       var xname = String(x.name_as_written || '').trim();
@@ -239,20 +335,58 @@ function resolveProducts_(extracts, issueNo) {
       } else if (!m) {
         enqueuePending_('product', x, 'Gemini 未返回映射:' + xname);
       }
-      // 如果 AI 返回的 canonical_name/brand 看起来像品牌名或品类名，也要更谨慎，但仍按 NEW 创建
-      var canonicalName = (m && m.canonical_name) || x.canonical_guess || xname;
-      // 兜底：剥离 AI 可能臆造的 (Hypothetical)/(假设)/(推测) 等标注后缀，并禁止空名。
-      canonicalName = String(canonicalName || '')
-        .replace(/\s*[(（]\s*(?:hypothetical|假设|推测|猜测|未知|tentative|placeholder|未确认)\s*[)）]\s*/gi, '')
-        .replace(/\s*[(（]\s*[^)）]*(?:hypothetical|假设|推测|猜测|未知|tentative|placeholder|未确认)[^)）]*\s*[)）]\s*/gi, '')
-        .trim() || xname;
+
+      // P0-2：名称写入前强制校验。原文名优先，AI canonical 仅作为候选。
+      var aiCanonical = String((m && m.canonical_name) || x.canonical_guess || '').trim();
+      var verdict = validateProductNameBeforeWrite_(xname, {
+        nameAsWritten: xname,
+        canonicalGuess: aiCanonical,
+        sourceText: sourceText || '',
+        existingProducts: productRows
+      });
+
+      // 与现有产品同名：复用它，绝不覆盖字典里的 canonical_name。
+      if (verdict.existingId) {
+        x.product_id = verdict.existingId;
+        addAlias_(xname, verdict.existingId);
+        return;
+      }
+
+      // 原文名不通过时，只有当 AI 建议名也能在原文中追溯，才允许改用建议名。
+      if (!verdict.ok && aiCanonical && aiCanonical !== xname) {
+        var alt = validateProductNameBeforeWrite_(aiCanonical, {
+          nameAsWritten: xname,
+          canonicalGuess: aiCanonical,
+          sourceText: sourceText || '',
+          existingProducts: productRows
+        });
+        if (alt.ok && alt.source === 'canonical_guess_in_source') verdict = alt;
+        else if (alt.existingId) {
+          x.product_id = alt.existingId;
+          addAlias_(xname, alt.existingId);
+          return;
+        }
+      }
+
+      if (!verdict.ok) {
+        enqueuePending_('product_name_rejected', {
+          name_as_written: xname,
+          ai_canonical: aiCanonical,
+          brand: x.brand_guess || '',
+          category: x.category_guess || '',
+          evidence: String(x.evidence || '').slice(0, 300)
+        }, verdict.reason);
+        return;
+      }
+
       x.product_id = createProduct_(
-        canonicalName,
+        verdict.name,
         (m && m.brand) || x.brand_guess || '',
         (m && m.category) || x.category_guess || 'unknown',
-        issueNo
+        issueNo,
+        { nameAsWritten: xname, nameSource: verdict.source }
       );
-      addAlias_(xname, x.product_id);
+      if (x.product_id) addAlias_(xname, x.product_id);
     });
   }
   return new Set(filtered.map(x => x.product_id).filter(Boolean));
@@ -393,21 +527,7 @@ function enqueuePending_(type, payload, reason) {
 function writeDocumentExtraction_(doc, ext, issueNo, dedup, stats) {
   const now = new Date().toISOString();
   const products = ext.products || [];
-  resolveProducts_(products, issueNo);
-
-  // 事件涉及的产品名也解析
-  const eventProducts = {};
-  (ext.events || []).forEach(ev => {
-    if (!ev.product_name) return;
-    let src = products.find(p => normalizeAlias(p.name_as_written) === normalizeAlias(ev.product_name));
-    let pid = src ? src.product_id : matchProductRule_(ev.product_name, buildAliasIndex_());
-    if (!pid) {
-      const tmp = [{ name_as_written: ev.product_name }];
-      resolveProducts_(tmp, issueNo);
-      pid = tmp[0].product_id;
-    }
-    eventProducts[ev.product_name] = pid;
-  });
+  resolveProducts_(products, issueNo, String(doc.text || ''));
 
   // 批量话题消重:按产品分批(话题身份 = product_id + name,产品之间完全隔离)
   const topicMap = {};
@@ -500,7 +620,7 @@ function writeDocumentExtraction_(doc, ext, issueNo, dedup, stats) {
     (p.competitor_mentions || []).forEach(c => {
       if (!c.evidence) return;
       const tmp = [{ name_as_written: c.name_as_written }];
-      resolveProducts_(tmp, issueNo);
+      resolveProducts_(tmp, issueNo, String(doc.text || ''));
       if (tmp[0].product_id === p.product_id) { stats.skipped++; return; } // 自环比无意义
       const key = [doc.doc_id, p.product_id, tmp[0].product_id].join('|');
       if (dedup.comps.has(key)) { stats.skipped++; return; }
@@ -519,68 +639,278 @@ function writeDocumentExtraction_(doc, ext, issueNo, dedup, stats) {
     });
   });
 
-  (ext.events || []).forEach(ev => {
-    const pid = eventProducts[ev.product_name];
-    if (!pid) return;
-    const key = [doc.doc_id, pid, (ev.type || '') + '|' + String(ev.title || '').slice(0, 12)].join('|');
-    if (dedup.events.has(key)) { stats.skipped++; return; }
-    dedup.events.add(key);
-    appendRow('Events', {
-      event_id: nextId('EVT', 'Events', 'event_id'),
-      product_id: pid,
-      event_date: ev.event_date || '',
-      type: ev.type || '',
-      title: ev.title || '',
-      summary: ev.summary || '',
-      doc_id: doc.doc_id,
+  // P0-4：General_Discussions 直接复用 Pass A 输出，不再调用 AI 重新总结。
+  (ext.general_discussion || []).forEach(function(gd) {
+    const evidence = String((gd && gd.evidence) || '').trim();
+    const title = String((gd && (gd.topic || gd.title)) || '').trim();
+    const summary = String((gd && gd.summary) || '').trim();
+    if (!evidence || (!title && !summary)) { stats.skipped++; return; }
+
+    const hash = [doc.doc_id, normalizeAlias(title), normalizeAlias(evidence).slice(0, 120)].join('|');
+    if (dedup.discussions && dedup.discussions.has(hash)) { stats.skipped++; return; }
+    if (dedup.discussions) dedup.discussions.add(hash);
+
+    // 只在唯一命中本次已解析产品时关联，绝不强行归属。
+    const hay = normalizeAlias(title + ' ' + summary + ' ' + evidence);
+    const hits = products.filter(function(p) {
+      const n = normalizeAlias(p.name_as_written || '');
+      return n && hay.indexOf(n) >= 0;
+    });
+    const related = hits.length === 1 && hits[0].product_id ? String(hits[0].product_id) : '';
+    const sentiment = String((gd && gd.sentiment) || '').toLowerCase();
+
+    appendRow('General_Discussions', {
+      discussion_id: nextId('DISC', 'General_Discussions', 'discussion_id'),
+      issue_no: issueNo,
+      document_id: doc.doc_id,
+      discussion_type: String((gd && (gd.discussion_type || gd.type)) || 'industry_discussion'),
+      title: title.slice(0, 200),
+      summary: summary.slice(0, 1000),
+      sentiment: ['positive', 'negative', 'neutral', 'unknown'].indexOf(sentiment) >= 0 ? sentiment : 'unknown',
+      evidence: evidence.slice(0, 300),
+      evidence_id: '',
+      related_product_id: related,
+      content_hash: hash,
       created_at: now,
     });
     stats.added++;
   });
 }
 
+/**
+ * 结构感知分块（V2.1 P0-3）。
+ * 纯代码识别标题/段落/列表/表格，在结构边界内按 Token 预算切分；
+ * 结构不可用时回退到机械切块，保证任何文本都能处理。
+ */
 function buildDeterministicSegments_(file, text) {
-  const MAX_CHARS = 6000;
-  const documents = [];
+  const name = file && file.getName ? file.getName() : 'text';
+  const url = file && file.getUrl ? file.getUrl() : '';
+  const version = String((CONFIG && CONFIG.SEGMENTER_VERSION) || 'v2');
+  const documents = version === 'v1'
+    ? mechanicalSegments_(text, name, url)
+    : structuralSegments_(text, name, url);
+  return { issue: {}, documents: documents, segmenter_version: version };
+}
+
+function estimateTokens_(s) {
+  const text = String(s || '');
+  const cjk = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+  return Math.ceil(cjk + (text.length - cjk) / 4);
+}
+
+function contentHash_(s) {
+  let h = 2166136261;
+  const text = String(s || '');
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ('00000000' + (h >>> 0).toString(16)).slice(-8);
+}
+
+function makeSegment_(chunk, meta) {
+  const hash = contentHash_(chunk);
+  return {
+    segment_id: 'SEG-' + meta.index + '-' + hash,
+    title: meta.name + '｜' + (meta.section || '正文') + '｜分块 ' + String(meta.index).padStart(3, '0'),
+    url: meta.url,
+    text: chunk,
+    parent_section: meta.section || '正文',
+    start_offset: meta.start,
+    end_offset: meta.end,
+    content_hash: hash,
+    segment_type: meta.type || 'paragraph',
+  };
+}
+
+function mechanicalSegments_(text, name, url) {
+  const src = String(text || '');
+  const MAX_CHARS = Number((CONFIG && CONFIG.SEGMENT_MAX_CHARS) || 6000);
+  const docs = [];
   let start = 0;
   let index = 1;
 
-  while (start < text.length) {
-    let end = Math.min(start + MAX_CHARS, text.length);
-
-    if (end < text.length) {
-      // 优先在当前块后 40% 范围内寻找换行
-      const newline = text.lastIndexOf('\n', end);
-
-      if (newline > start + MAX_CHARS * 0.6) {
-        end = newline + 1;
-      } else {
-        // 如果当前范围内没有合适的换行，向后寻找
-        const nextNewline = text.indexOf('\n', end);
-
-        if (nextNewline !== -1) {
-          end = nextNewline + 1;
-        }
+  while (start < src.length) {
+    let end = Math.min(start + MAX_CHARS, src.length);
+    if (end < src.length) {
+      const newline = src.lastIndexOf('\n', end);
+      if (newline > start + MAX_CHARS * 0.6) end = newline + 1;
+      else {
+        const nextNewline = src.indexOf('\n', end);
+        if (nextNewline !== -1) end = nextNewline + 1;
       }
     }
-
-    const chunk = text.slice(start, end);
-
-    documents.push({
-      title: file.getName() +
-        '｜原文分块 ' + String(index).padStart(3, '0'),
-      url: file.getUrl(),
-      text: chunk
-    });
-
+    const chunk = src.slice(start, end);
+    docs.push(makeSegment_(chunk, {
+      name: name, url: url, index: index, section: '正文',
+      start: start, end: end, type: 'paragraph'
+    }));
     start = end;
     index++;
   }
+  return docs;
+}
 
-  return {
-    issue: {},
-    documents: documents
-  };
+/** 把文本解析成结构块（标题/段落/列表/表格），并保留字符偏移。 */
+function parseTextBlocks_(text) {
+  const src = String(text || '');
+  const lines = src.split(/\r?\n/);
+  const lineOffsets = [0];
+  for (let k = 0; k < lines.length; k++) lineOffsets.push(lineOffsets[k] + lines[k].length + 1);
+
+  const blocks = [];
+  function push(type, from, to) {
+    const chunk = lines.slice(from, to).join('\n');
+    if (!chunk.trim()) return;
+    blocks.push({
+      type: type,
+      text: chunk.trim(),
+      start: lineOffsets[from] || 0,
+      end: lineOffsets[to] !== undefined ? lineOffsets[to] : src.length,
+    });
+  }
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = String(line).trim();
+    if (!trimmed) { i++; continue; }
+
+    if (/^#{1,6}\s+/.test(trimmed) || /^【[^】]{1,40}】$/.test(trimmed)) {
+      push('heading', i, i + 1);
+      i++;
+      continue;
+    }
+
+    if (trimmed.indexOf('|') >= 0) {
+      let j = i;
+      while (j < lines.length && String(lines[j]).trim().indexOf('|') >= 0) j++;
+      push('table', i, j);
+      i = j;
+      continue;
+    }
+
+    if (/^(\s*)([-*+]|\d+[.)])\s+/.test(line)) {
+      let j = i;
+      while (j < lines.length
+        && (/^(\s*)([-*+]|\d+[.)])\s+/.test(lines[j]) || String(lines[j]).trim() === '')) j++;
+      push('list', i, j);
+      i = j;
+      continue;
+    }
+
+    let j = i;
+    while (j < lines.length
+      && String(lines[j]).trim() !== ''
+      && !/^#{1,6}\s+/.test(String(lines[j]).trim())
+      && !/^【[^】]{1,40}】$/.test(String(lines[j]).trim())
+      && String(lines[j]).trim().indexOf('|') < 0
+      && !/^(\s*)([-*+]|\d+[.)])\s+/.test(lines[j])) j++;
+    push('paragraph', i, j);
+    i = j;
+  }
+  return blocks;
+}
+
+function dominantBlockType_(counts) {
+  let best = 'paragraph';
+  let n = 0;
+  Object.keys(counts || {}).forEach(function(k) {
+    if (k !== 'heading' && counts[k] > n) { best = k; n = counts[k]; }
+  });
+  return best;
+}
+
+/**
+ * 超长单块切分。重叠内容加显式标记，Pass A 只把它当上下文，避免重复抽取。
+ */
+function splitLongBlock_(text, maxTokens, overlapChars) {
+  const src = String(text || '');
+  const paras = src.split(/\n{2,}/).filter(function(s) { return s.trim(); });
+  if (!paras.length) return [src];
+
+  const parts = [];
+  let buf = '';
+  paras.forEach(function(p) {
+    if (buf && estimateTokens_(buf + '\n\n' + p) > maxTokens) {
+      parts.push(buf);
+      const tail = overlapChars > 0 ? buf.slice(-overlapChars).trim() : '';
+      buf = tail
+        ? '【上文衔接，仅供理解，不要重复抽取】\n' + tail + '\n\n' + p
+        : p;
+    } else {
+      buf = buf ? buf + '\n\n' + p : p;
+    }
+  });
+  if (buf.trim()) parts.push(buf);
+  return parts.length ? parts : [src];
+}
+
+function structuralSegments_(text, name, url) {
+  const src = String(text || '');
+  const targetTokens = Number((CONFIG && CONFIG.SEGMENT_TARGET_TOKENS) || 2200);
+  const maxTokens = Number((CONFIG && CONFIG.SEGMENT_MAX_TOKENS) || 3000);
+  const overlapChars = Number((CONFIG && CONFIG.SEGMENT_OVERLAP_CHARS) || 0);
+
+  const blocks = parseTextBlocks_(src);
+  if (!blocks.length) return mechanicalSegments_(src, name, url);
+  if (blocks.length === 1 && estimateTokens_(blocks[0].text) > maxTokens) {
+    return mechanicalSegments_(src, name, url);
+  }
+
+  const docs = [];
+  let index = 1;
+  let section = '正文';
+  let buf = '';
+  let bufStart = 0;
+  let bufEnd = 0;
+  let bufTypes = {};
+
+  function flush(sectionName) {
+    if (!buf.trim()) { buf = ''; bufTypes = {}; return; }
+    docs.push(makeSegment_(buf, {
+      name: name, url: url, index: index, section: sectionName || section,
+      start: bufStart, end: bufEnd, type: dominantBlockType_(bufTypes)
+    }));
+    index++;
+    buf = '';
+    bufTypes = {};
+  }
+
+  blocks.forEach(function(b) {
+    if (b.type === 'heading') {
+      flush(section);
+      section = String(b.text).replace(/^[#\s]+/, '').trim() || section;
+      buf = b.text + '\n\n';
+      bufStart = b.start;
+      bufEnd = b.end;
+      bufTypes[b.type] = 1;
+      return;
+    }
+
+    const pieceTokens = estimateTokens_(b.text);
+    if (pieceTokens > maxTokens && b.type !== 'table') {
+      flush(section);
+      splitLongBlock_(b.text, maxTokens, overlapChars).forEach(function(part, i) {
+        docs.push(makeSegment_(part, {
+          name: name, url: url, index: index,
+          section: section + (i > 0 ? '（续' + (i + 1) + '）' : ''),
+          start: b.start, end: b.end, type: b.type
+        }));
+        index++;
+      });
+      return;
+    }
+
+    if (buf && estimateTokens_(buf + b.text) > targetTokens) flush(section);
+    if (!buf) bufStart = b.start;
+    buf += b.text + (b.type === 'table' ? '\n' : '\n\n');
+    bufEnd = b.end;
+    bufTypes[b.type] = (bufTypes[b.type] || 0) + 1;
+  });
+  flush(section);
+
+  return docs.length ? docs : mechanicalSegments_(src, name, url);
 }
 
 /* ---------- 单文件处理主流程 ---------- */
@@ -606,13 +936,8 @@ function processDriveFile_(file, opts) {
   }
   Logger.log('全文提取完成：' + file.getName() + '；字符数=' + text.length);
 
-  // Pass 0:Gemini 拆分
+  // 结构感知分块（V2.1 P0-3）
   const seg = buildDeterministicSegments_(file, text);
-
-
-  // 分块函数已移至文件顶层，供测试函数和主流程共同调用。
-
-
 
   // 期号与日期
   const issueNo = String((seg.issue && seg.issue.issue_no)
@@ -623,15 +948,25 @@ function processDriveFile_(file, opts) {
 
   ensureIssue_(issueNo, issueDate, file.getUrl());
 
-  // 逐 Document:登记 + Pass A + 写入(支持断点续跑与每轮上限)
+  // 逐 Document:登记 + Pass A + 写入(支持断点续跑、每轮上限与动态运行预算)
   const segs = seg.documents || [];
   const dedup = buildDedupSets_();
+  const startedMs = Date.now();
+  const budgetMs = Math.max(30000,
+    Number(opts.budgetMs) || Number(CONFIG.DOC_RUN_BUDGET_MS) || 240000);
   const stats = { issue_no: issueNo, file: file.getName(),
                   source_chars: text.length,
+                  segmenter_version: seg.segmenter_version || '',
                   docs_total: segs.length, docs_done: doneKeys.size,
-                  added: 0, skipped: 0, updated: 0, errors: [], remaining: 0 };
+                  added: 0, skipped: 0, updated: 0, errors: [], remaining: 0,
+                  ai_calls: 0, input_tokens: 0, output_tokens: 0,
+                  cache_hits: 0, elapsed_ms: 0, stopped_by_budget: false };
   let runCount = 0;
   for (let i = 0; i < segs.length; i++) {
+    if (Date.now() - startedMs >= budgetMs) {
+      stats.stopped_by_budget = true;
+      break;  // 接近运行上限：主动停止，剩余的交给 60 秒续跑
+    }
     const d = segs[i];
     const key = docKey_(d);
     if (doneKeys.has(key)) { stats.skipped++; continue; }   // 之前轮次已完成,连 Pass A 的 token 都省掉
@@ -641,6 +976,12 @@ function processDriveFile_(file, opts) {
       writeDocumentExtraction_(docRow, ext, issueNo, dedup, stats);
       doneKeys.add(key);
       runCount++;
+      const diag = typeof getLastAiDiag_ === 'function' ? getLastAiDiag_() : null;
+      if (diag) {
+        stats.ai_calls++;
+        stats.input_tokens += Number(diag.inputTokens || 0);
+        stats.output_tokens += Number(diag.outputTokens || 0) + Number(diag.thoughts || 0);
+      }
       Utilities.sleep(400); // 限速保护
     } catch (e) {
       const message = String(e).slice(0, 500);
@@ -656,10 +997,12 @@ function processDriveFile_(file, opts) {
   }
   stats.docs_done = doneKeys.size;
   stats.remaining = segs.length - doneKeys.size;
+  stats.elapsed_ms = Date.now() - startedMs;
   return stats;
 }
 
-/** Document 的稳定键:URL + 标题(规范化) */
+/** Document 的稳定键：新分块用 segment_id，历史数据仍用 URL+标题。 */
 function docKey_(seg) {
+  if (seg && seg.segment_id) return 'seg:' + String(seg.segment_id);
   return normalizeAlias((seg.url || '') + '|' + (seg.title || ''));
 }

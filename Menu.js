@@ -27,6 +27,7 @@ function addSmokeMenu() {
       .addItem('3) 批量核验（最多5个，仅隔离不删除）', 'smoke_verifyBatch')
       .addItem('4) 耳机规格提取（用真实耳机产品）', 'smoke_extractHeadset')
       .addItem('4.5) Crawl4AI 规格采集（最多3个产品）', 'smoke_crawl4aiSpecs')
+      .addItem('4.6) 端到端：文本→分块→实体→URL→规格', 'smoke_fullPipelineFromInputSheet')
       .addItem('5) 验证隔离产品不入队规格', 'smoke_quarantineBlocksTask')
       .addItem('6) 查看隔离/待复核状态', 'smoke_reportStatus')
       .addItem('7) 安装/检查 URL 核验触发器（6小时）', 'smoke_ensureUrlVerifyTrigger')

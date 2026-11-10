@@ -524,9 +524,9 @@ function smoke_productOnlyPipeline_(text) {
         { maxTokens: Number(CONFIG.AI_MAX_OUTPUT_TOKENS) || 16384 });
       var wasCut = !!(ext && ext.__truncated);
       if (wasCut) truncatedChunks++;
-      // 只处理产品实体，跳过 topics/feedback/events/user_needs/competitors。
+      // 只处理产品实体，跳过 topics/feedback/user_needs/competitors。
       var products = (ext && ext.products) || [];
-      resolveProducts_(products, issueNo);
+      resolveProducts_(products, issueNo, c.text);
       stats.added += products.length;
       var diag = typeof getLastAiDiag_ === 'function' ? getLastAiDiag_() : null;
       var diagText = diag

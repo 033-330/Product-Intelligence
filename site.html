@@ -174,7 +174,7 @@
 <div class="section-head"><div><h2>产品目录</h2><p>搜索产品名称、别名、技术关键词或竞品；点击产品进入产品情报页。</p></div><div class="tabs-sort" id="sortTabs"><button class="active" data-sort="relevant">按讨论量</button><button data-sort="name">按名称</button></div></div>
 <div class="controls"><div class="search"><input id="search" placeholder="搜索产品,例如 GPW5 Ultra、PRO X3、磁轴…" autocomplete="off"></div><select id="category"><option value="all">全部品类</option><option value="mouse">鼠标</option><option value="trackball">轨迹球</option><option value="pointing_device">指向设备</option><option value="keyboard">键盘</option><option value="combo">键鼠套装</option><option value="headset">游戏耳机</option><option value="headphones">耳机</option><option value="earbuds">耳塞</option><option value="speaker">扬声器</option><option value="webcam">网络摄像头</option><option value="conference_camera">会议摄像头</option><option value="conference_system">会议系统</option><option value="speakerphone">扬声器电话</option><option value="microphone">麦克风</option><option value="gaming_controller">游戏控制器</option><option value="racing_wheel">赛车方向盘</option><option value="flight_simulation">飞行模拟设备</option><option value="presenter">演示器</option><option value="tablet_accessory">平板配件</option><option value="lighting">灯光</option><option value="mousepad">鼠标垫</option><option value="receiver">接收器</option><option value="stand">支架</option><option value="accessory">配件</option></select><select id="brandFilter"><option value="all">全部品牌</option></select></div>
 <div class="section-head"><div><h2 id="resultTitle">产品目录</h2><p id="resultCount">加载中…</p></div></div><div class="product-grid" id="productGrid"><div class="skeleton">正在从 Google Sheets 读取产品数据…</div></div>
-<div class="lower-grid" id="lowerPanels"><div class="panel"><div class="panel-title"><h3>近期值得关注的事件</h3><span>事件流</span></div><div id="eventList"><div class="skeleton">加载中…</div></div></div><div class="panel"><div class="panel-title"><h3>用户诉求与痛点</h3><span>跨产品归纳 · 实时统计</span></div><div id="topicList"><div class="skeleton">加载中…</div></div></div></div>
+<div class="lower-grid" id="lowerPanels"><div class="panel"><div class="panel-title"><h3>行业讨论</h3><span>General_Discussions · V2.1</span></div><div id="discussionList"><div class="empty">暂无已落库的行业讨论</div></div></div><div class="panel"><div class="panel-title"><h3>用户诉求与痛点</h3><span>跨产品归纳 · 实时统计</span></div><div id="topicList"><div class="skeleton">加载中…</div></div></div></div>
 <div class="footnote">数据说明:所有 Topic 按全历史累计提及次数排序;每条反馈附原文引述与来源链接,可回溯到具体视频 / 帖子。</div></section>
 
 <section class="detail-view" id="detailView">
@@ -204,7 +204,7 @@
   <div class="ov-grid" id="ovKpis"></div>
   <div class="panel"><div class="panel-title"><h3>官方产品规格</h3><span>来自官方页面 · 显示来源与核验状态</span></div><div id="detailSpecs"><div class="empty">暂无已采集的官方规格</div></div></div>
   <div class="panel"><div class="panel-title"><h3>用户诉求与痛点</h3><span>评论区与评测中的真实需求 · 已过滤卖点评价</span></div><div id="detailNeeds"><div class="skeleton">加载中…</div></div></div>
-  <div class="panel"><div class="panel-title"><h3>相关事件</h3><span>来源 → 事件 → 产品</span></div><div id="detailEvents"><div class="skeleton">加载中…</div></div></div>
+
 </div>
 
 <div class="dview" id="dviewTopics">
@@ -314,7 +314,7 @@ async function loadOverview() {
   } catch (e) {
     $('#productGrid').innerHTML = `<div class="error-box">数据加载失败:${esc(e.message)}<br>请检查 API_URL 是否已改为你的 Web App 地址,且部署权限为「所有人」。</div>`;
   }
-  loadEvents(); loadNeedsPanel();
+  loadNeedsPanel();
 }
 function renderProducts() {
   const q = $('#search').value.trim().toLowerCase();
@@ -336,17 +336,7 @@ function renderProducts() {
     : '<div class="empty">没有找到匹配产品。试试更短的关键词,或切换品类 / 品牌。</div>';
   document.querySelectorAll('.product').forEach(el => el.onclick = () => openProduct(el.dataset.id));
 }
-async function loadEvents() {
-  try {
-    const data = await api({action:'listEvents'});
-    const evs = data.events || [];
-    $('#eventList').innerHTML = evs.length ? evs.slice(0,6).map(ev => `
-      <div class="event"><div class="platform">${esc(platformShort(ev.type||''))}</div>
-        <div><h4>${esc(ev.title)}</h4><p>${esc(ev.summary||'')}</p></div>
-        <span class="tag">${esc(ev.product||'')}</span></div>`).join('')
-      : '<div class="empty">暂无事件</div>';
-  } catch(e) { $('#eventList').innerHTML = '<div class="empty">事件加载失败</div>'; }
-}
+
 async function loadNeedsPanel() {
   try {
     const data = await api({action:'listNeeds'});
@@ -370,7 +360,7 @@ async function openProduct(id) {
   switchDView('dviewReviewSearch');
   $('#detailName').textContent = '加载中…';
   $('#detailSubtitle').textContent = '';
-  $('#detailTopics').innerHTML = $('#detailNeeds').innerHTML = $('#detailEvents').innerHTML = '<div class="skeleton">加载中…</div>';
+  $('#detailTopics').innerHTML = $('#detailNeeds').innerHTML = '<div class="skeleton">加载中…</div>';
   $('#detailCompetitors').innerHTML = '';
   $('#sentimentChart').innerHTML = '';
   $('#allFeedback').innerHTML = '<div class="skeleton">加载中…</div>';
@@ -437,14 +427,8 @@ async function loadDetailAux(id) {
         <span class="tag">诉求</span>
       </div>`).join('')
       : '<div class="empty">该产品暂无归纳的诉求</div>';
-    $('#detailEvents').innerHTML = (det.events||[]).length ? det.events.map(ev => `
-      <div class="event"><div class="platform">${esc(platformShort(ev.type||''))}</div>
-        <div><h4>${esc(ev.title)}</h4><p>${esc(ev.summary||'')}</p></div>
-        <span class="tag">${esc(ev.date||'近期')}</span></div>`).join('')
-      : '<div class="empty">暂无相关事件</div>';
   } catch(e) {
     $('#detailNeeds').innerHTML = '<div class="empty">诉求加载失败</div>';
-    $('#detailEvents').innerHTML = '<div class="empty">事件加载失败</div>';
   }
   loadSentiment(id);
   loadAllFeedback(id);

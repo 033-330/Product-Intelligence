@@ -528,13 +528,165 @@ function verifyProductUrls_(options) {
   };
 }
 
-/** 供触发器/编辑器直接运行。默认只隔离，不级联删除。 */
-function runProductUrlVerification(limit) {
-  return verifyProductUrls_({
-    limit: limit || Number(CONFIG.PRODUCT_URL_VERIFY_MAX_PER_RUN) || 20,
-    deleteInvalid: false,
-    quarantineOnly: true
+/** P0-1：产品的 URL 验证任务入队（同产品已有活跃任务时不重复创建）。 */
+function enqueueUrlVerificationTask_(productId, url, priority) {
+  var pid = String(productId || '').trim();
+  if (!pid) return null;
+  try {
+    if (!sheet_('UrlVerificationTasks')) return null;
+  } catch (e) {
+    return null;
+  }
+  var tasks = readTable('UrlVerificationTasks');
+  var active = tasks.some(function(t) {
+    return String(t.product_id) === pid
+      && ['queued', 'running', 'retry'].indexOf(String(t.status)) >= 0;
   });
+  if (active) return null;
+
+  var taskId = nextId('UVT', 'UrlVerificationTasks', 'task_id');
+  var now = new Date().toISOString();
+  appendRow('UrlVerificationTasks', {
+    task_id: taskId,
+    product_id: pid,
+    url: String(url || ''),
+    status: 'queued',
+    priority: Number(priority) || 3,
+    attempt_count: 0,
+    max_attempts: Number(CONFIG.URL_VERIFY_TASK_MAX_ATTEMPTS) || 3,
+    next_attempt_at: now,
+    created_at: now,
+    started_at: '',
+    finished_at: '',
+    last_error: '',
+    result: '',
+    notes: 'created_by_pipeline',
+    checked_at: ''
+  });
+  return taskId;
+}
+
+/** P0-1：异步验证 Worker；逐条复用 verifyProductUrls_ 的判定与回写逻辑。 */
+function processUrlVerificationTasks_(limit) {
+  limit = Math.max(1, Math.min(10,
+    Number(limit) || Number(CONFIG.URL_VERIFY_TASKS_PER_RUN) || 3));
+  try {
+    if (!sheet_('UrlVerificationTasks')) return { processed: 0, results: [] };
+  } catch (e) {
+    return { processed: 0, results: [] };
+  }
+
+  var now = Date.now();
+  var tasks = readTable('UrlVerificationTasks').filter(function(t) {
+    var status = String(t.status || '');
+    if (['queued', 'retry'].indexOf(status) < 0) return false;
+    var next = t.next_attempt_at ? new Date(t.next_attempt_at).getTime() : 0;
+    return !next || isNaN(next) || next <= now;
+  }).sort(function(a, b) {
+    return Number(b.priority || 0) - Number(a.priority || 0)
+      || String(a.created_at || '').localeCompare(String(b.created_at || ''));
+  }).slice(0, limit);
+
+  var results = [];
+  var sh = sheet_('UrlVerificationTasks');
+  var values = sh.getDataRange().getValues();
+  var headers = values[0].map(function(h) { return String(h == null ? '' : h).trim(); });
+  var ix = {};
+  headers.forEach(function(h, i) { ix[h] = i; });
+
+  function updateRow(taskId, updates) {
+    for (var r = 1; r < values.length; r++) {
+      if (String(values[r][ix.task_id] || '').trim() !== String(taskId)) continue;
+      Object.keys(updates).forEach(function(k) {
+        if (ix[k] != null) sh.getRange(r + 1, ix[k] + 1).setValue(updates[k]);
+      });
+      return;
+    }
+  }
+
+  tasks.forEach(function(t) {
+    var taskId = String(t.task_id || '');
+    var pid = String(t.product_id || '');
+    var attempts = Number(t.attempt_count || 0) + 1;
+    var maxAttempts = Number(t.max_attempts || CONFIG.URL_VERIFY_TASK_MAX_ATTEMPTS || 3);
+    updateRow(taskId, {
+      status: 'running', attempt_count: attempts,
+      started_at: new Date().toISOString(), last_error: ''
+    });
+
+    try {
+      verifyProductUrls_({ ids: pid, force: true, limit: 1, deleteInvalid: false, quarantineOnly: true });
+      var product = readTable('Products').filter(function(p) {
+        return String(p.product_id) === pid;
+      })[0] || {};
+      var st = String(product.official_url_status || '').toLowerCase();
+      var checkedAt = String(product.official_url_checked_at || new Date().toISOString());
+      var notes = String(product.official_url_notes || '');
+
+      if (st === 'verified') {
+        updateRow(taskId, {
+          status: 'done', finished_at: new Date().toISOString(), checked_at: checkedAt,
+          url: String(product.official_url || t.url || ''), result: 'verified',
+          notes: notes.slice(0, 500), last_error: ''
+        });
+        results.push({ task_id: taskId, product_id: pid, status: 'verified' });
+        return;
+      }
+
+      if (st === 'check_failed') {
+        var giveUp = attempts >= maxAttempts;
+        updateRow(taskId, {
+          status: giveUp ? 'failed' : 'retry',
+          next_attempt_at: giveUp ? '' : new Date(Date.now() + Math.min(24, Math.pow(2, attempts)) * 3600000).toISOString(),
+          finished_at: giveUp ? new Date().toISOString() : '',
+          checked_at: checkedAt, result: 'check_failed',
+          notes: notes.slice(0, 500), last_error: notes.slice(0, 500)
+        });
+        results.push({ task_id: taskId, product_id: pid, status: giveUp ? 'failed' : 'retry' });
+        return;
+      }
+
+      updateRow(taskId, {
+        status: 'failed', finished_at: new Date().toISOString(), checked_at: checkedAt,
+        result: st || 'not_found', notes: notes.slice(0, 500),
+        last_error: notes.slice(0, 500)
+      });
+      results.push({ task_id: taskId, product_id: pid, status: 'failed', reason: st });
+    } catch (e) {
+      var msg = String(e && e.message ? e.message : e).slice(0, 500);
+      var last = attempts >= maxAttempts;
+      updateRow(taskId, {
+        status: last ? 'failed' : 'retry',
+        next_attempt_at: last ? '' : new Date(Date.now() + Math.min(24, Math.pow(2, attempts)) * 3600000).toISOString(),
+        finished_at: last ? new Date().toISOString() : '',
+        last_error: msg, notes: msg
+      });
+      results.push({ task_id: taskId, product_id: pid, status: last ? 'failed' : 'retry', error: msg });
+    }
+  });
+
+  clearCache();
+  return { processed: results.length, results: results };
+}
+
+/** 供触发器/编辑器直接运行。先消化验证任务队列，队列为空时才批量扫描。 */
+function runProductUrlVerification(limit) {
+  var taskResult = { processed: 0, results: [] };
+  try {
+    taskResult = processUrlVerificationTasks_(CONFIG.URL_VERIFY_TASKS_PER_RUN);
+  } catch (e) {
+    Logger.log('URL 验证任务队列执行失败：' + String(e));
+  }
+
+  // 队列已消耗本轮额度时不再批量扫描，避免 Crawl4AI 429。
+  var scanLimit = taskResult.processed > 0
+    ? 0
+    : (limit || Number(CONFIG.PRODUCT_URL_VERIFY_MAX_PER_RUN) || 20);
+  var scanResult = scanLimit > 0
+    ? verifyProductUrls_({ limit: scanLimit, deleteInvalid: false, quarantineOnly: true })
+    : { checked: 0, results: [] };
+
+  return { tasks: taskResult, scan: scanResult };
 }
 
 /** 幂等安装：已存在同名触发器时不重复创建。 */

@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Google Apps Script product intelligence pipeline",
   "scripts": {
-    "test": "node tests/pure.test.js",
+    "test": "node tests/pure.test.js && node tests/p0.test.js",
     "test:crawl4ai": "node tests/crawl4ai.manual.js",
     "check": "node tests/check-syntax.js"
   }

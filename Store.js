@@ -5,7 +5,8 @@
 const SHEET_DEFS = {
   Issues:       ['issue_no', 'date', 'raw_text_ref', 'status', 'created_at'],
   Documents:    ['doc_id', 'issue_no', 'platform', 'source_type', 'title', 'url', 'author',
-                 'published_at', 'comment_count', 'char_count', 'text', 'created_at'],
+                 'published_at', 'comment_count', 'char_count', 'text', 'created_at',
+                 'segment_id', 'content_hash', 'parent_section', 'start_offset', 'end_offset', 'segment_type'],
   Products:     ['product_id', 'canonical_name', 'brand', 'category',
                  'first_seen_issue', 'status', 'created_at', 'official_url',
                  'official_url_status', 'official_url_checked_at', 'official_url_notes'],
@@ -34,6 +35,16 @@ const SHEET_DEFS = {
   Events:       ['event_id', 'product_id', 'event_date', 'type', 'title', 'summary',
                  'doc_id', 'created_at'],
   PendingQueue: ['item_id', 'item_type', 'payload_json', 'reason', 'status', 'created_at'],
+
+  /* --- V2.1 P0：行业讨论与非产品专属讨论（复用 Pass A 输出，不再二次调用 AI） --- */
+  General_Discussions: ['discussion_id', 'issue_no', 'document_id', 'discussion_type', 'title',
+                 'summary', 'sentiment', 'evidence', 'evidence_id', 'related_product_id',
+                 'content_hash', 'created_at'],
+
+  /* --- V2.1 P0：产品 URL 异步验证任务 --- */
+  UrlVerificationTasks: ['task_id', 'product_id', 'url', 'status', 'priority', 'attempt_count',
+                 'max_attempts', 'next_attempt_at', 'created_at', 'started_at', 'finished_at',
+                 'last_error', 'result', 'notes', 'checked_at'],
 
   /* --- 反馈级明细:唯一事实表。一条 = 一条独立反馈,Topic 提及数 = 反馈条数 --- */
   Feedback:     ['feedback_id', 'doc_id', 'product_id', 'topic_id',

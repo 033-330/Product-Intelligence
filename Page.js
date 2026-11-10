@@ -147,11 +147,8 @@ function buildPage_(id) {
     .filter(n => String(n.product_id || '').trim() === normalizedId && n.need_type !== 'evaluation')
     .map(n => ({ category: n.category, description: n.description, evidence: n.evidence_quote }));
 
-  const events = readTable('Events')
-    .filter(ev => String(ev.product_id || '').trim() === normalizedId)
-    .sort((a, b) => String(b.event_date).localeCompare(String(a.event_date)))
-    .slice(0, 10)
-    .map(ev => ({ date: ev.event_date, type: ev.type, title: ev.title, summary: ev.summary }));
+  // V2.1 P0：Events 已退出新 Pipeline，详情页不再读取事件表。
+  const events = [];
 
   return {
     product_id: pr.product_id,

@@ -48,6 +48,27 @@ const CONFIG = {
   PRODUCT_URL_VERIFY_MAX_PER_RUN: 10,   // 每轮最多核验多少个产品
   PRODUCT_URL_VERIFY_REFRESH_DAYS: 7,   // 已核验 URL 多少天后重新核验
 
+  /* --- V2.1 P0：URL 验证任务队列 --- */
+  URL_VERIFY_TASKS_PER_RUN: 3,          // 每轮最多执行多少个验证任务
+  URL_VERIFY_TASK_MAX_ATTEMPTS: 3,      // 单任务最多尝试次数
+
+  /* --- V2.1 P0：文档处理与分块 ---
+   * DOCS_PER_RUN 控制单轮处理多少个文档单元；DOC_RUN_BUDGET_MS 是主动停止阈值，
+   * 小于 Apps Script 的 6 分钟上限，给回写和续跑留余量。 */
+  DOCS_PER_RUN: 2,
+  DOC_RUN_BUDGET_MS: 240000,
+  SEGMENTER_VERSION: 'v2',
+  SEGMENT_TARGET_CHARS: 4500,
+  SEGMENT_MAX_CHARS: 6000,
+  SEGMENT_TARGET_TOKENS: 2200,
+  SEGMENT_MAX_TOKENS: 3000,
+  SEGMENT_OVERLAP_CHARS: 120,
+
+  /* --- V2.1 P0：端到端验证入口限额 --- */
+  FULL_PIPELINE_MAX_SEGMENTS: 3,
+  FULL_PIPELINE_MAX_PRODUCTS: 3,
+  FULL_PIPELINE_MAX_SPECS: 2,
+
   /* --- 默认时间窗 ---
    * 0  = 累计全部历史数据(Top N = 历史提及最多的 N 个) ← 默认
    * 30 = 最近 30 天窗口(按 Documents.published_at 过滤) */

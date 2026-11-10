@@ -276,17 +276,13 @@ function globalSearch_(q) {
 /* ---------- action: listEvents ---------- */
 
 function buildEvents_(daysParam) {
+  // V2.1 P0：Events 已退出新 Pipeline；保留只读接口避免旧前端报错。
   const days = parseDays_(daysParam);
-  const ids = windowDocIds_(days);
-  const pIdx = productIndex_();
   return {
     scope: scopeLabel_(days),
-    events: readTable('Events')
-      .filter(ev => ids.has(ev.doc_id))
-      .sort((a, b) => String(b.event_date).localeCompare(String(a.event_date)))
-      .slice(0, 50)
-      .map(ev => ({ date: ev.event_date, type: ev.type, title: ev.title,
-                    product: (pIdx[ev.product_id] || {}).canonical_name || '', summary: ev.summary })),
+    retired: true,
+    events: [],
+    note: 'Events 已停用（V2.1 P0），历史表保留但不再新增。',
   };
 }
 

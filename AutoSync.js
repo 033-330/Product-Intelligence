@@ -462,7 +462,8 @@ function syncFileById(fileId) {
   try {
     stats = processDriveFile_(file, {
       doneKeys: doneKeys,
-      maxDocs: Math.max(1, Number(CONFIG.DOCS_PER_RUN) || 1)
+      maxDocs: Math.max(1, Number(CONFIG.DOCS_PER_RUN) || 1),
+      budgetMs: Number(CONFIG.DOC_RUN_BUDGET_MS) || 240000
     });
   } catch (e) {
     markFileProcessed_(
