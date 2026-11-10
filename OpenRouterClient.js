@@ -3,8 +3,8 @@
  * OpenRouterClient.gs
  *
  * 独立的 OpenRouter AI 适配器。
- * 默认主模型为 openrouter/free（Free Models Router，自动路由到支持
- * structured outputs 的免费模型），失效时依次回退其他 :free 模型。
+ * 默认使用显式 :free 模型链（Nemotron 30B → Nemotron VL → openrouter/free），
+ * 上游无文本/报错时自动切换下一个候选。
  *
  * Script Properties 必须包含：
  * OPENROUTER_API_KEY

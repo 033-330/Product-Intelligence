@@ -12,10 +12,10 @@ const CONFIG = {
   GEMINI_MODEL: 'gemini-3.1-flash-lite',
   GEMINI_BASE: 'https://generativelanguage.googleapis.com/v1beta/models/',
   // 可用 Script Property OPENROUTER_MODEL 覆盖主模型（不改代码即可换模型）。
-  // openrouter/free：Free Models Router，按请求所需能力（含 structured outputs）自动路由到可用免费模型。
-  OPENROUTER_MODEL: 'openrouter/free',
-  // 主路由失效时按顺序换下一个；仅使用 :free 模型，避免回退到付费模型产生费用。
-  OPENROUTER_FALLBACK_MODELS: ['nvidia/nemotron-3.5-super-vl:free', 'minimax/minimax-m3.1-flash:free'],
+  // 已核对 OpenRouter 免费目录：Nemotron 30B / Nemotron VL 有 :free 变体；
+  // Step 3.5 Flash 无免费版，故不放入免费链。openrouter/free 作为兜底路由器。
+  OPENROUTER_MODEL: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+  OPENROUTER_FALLBACK_MODELS: ['nvidia/nemotron-3.5-super-vl:free', 'openrouter/free'],
   OPENROUTER_BASE: 'https://openrouter.ai/api/v1/chat/completions',
   // OpenRouter（nemotron-3.5-super-vl）优先，失败/限流时回退 Gemini。
   // 可用 Script Property AI_PROVIDER_ORDER 调整，例如 'openrouter' 或 'gemini,openrouter'。
