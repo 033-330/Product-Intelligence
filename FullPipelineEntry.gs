@@ -14,6 +14,8 @@
  *   - SmokeInput!A3 起写阶段明细
  * ============================================================ */
 
+var FULL_PIPELINE_PROGRESS_SHEET_ = null;
+
 function smoke_fullPipelineFromInputSheet() {
   var ui = null;
   try { ui = SpreadsheetApp.getUi(); } catch (e) { ui = null; }
@@ -32,6 +34,7 @@ function smoke_fullPipelineFromInputSheet() {
   }
 
   var report;
+  FULL_PIPELINE_PROGRESS_SHEET_ = sh;
   try {
     report = runFullPipelineFromText_(text, {
       maxSegments: Number(scriptProperty_('FULL_PIPELINE_MAX_SEGMENTS'))
@@ -51,6 +54,8 @@ function smoke_fullPipelineFromInputSheet() {
       finished_at: new Date().toISOString(),
       elapsed_ms: 0
     };
+  } finally {
+    FULL_PIPELINE_PROGRESS_SHEET_ = null;
   }
 
   try { writeFullPipelineReport_(sh, report); } catch (writeError) {
@@ -94,6 +99,9 @@ function runFullPipelineFromText_(text, opts) {
       stage: name, status: status, detail: detail || '',
       elapsed_ms: Date.now() - startedMs
     });
+    if (FULL_PIPELINE_PROGRESS_SHEET_) {
+      try { writeFullPipelineReport_(FULL_PIPELINE_PROGRESS_SHEET_, report); } catch (ignore) {}
+    }
   }
 
   // 0) 幂等建表/补列（不删改历史数据）
@@ -218,8 +226,11 @@ function runFullPipelineFromText_(text, opts) {
   // 3) URL 验证（复用任务队列 + 现有核验链路）
   var verified = [];
   ids.forEach(function(id) {
-    if (Date.now() - startedMs >= timeBudget) {
+    // 单次 URL 核验可能包含 90 秒级 AI 调用，剩余不足 90 秒就不要再开始。
+    if (timeBudget - (Date.now() - startedMs) < 90000) {
       report.url_results.push({ product_id: id, status: 'skipped_budget' });
+      try { enqueueUrlVerificationTask_(id, '', 1); } catch (ignore) {}
+      stage('url:' + id, 'skipped', '剩余不足 90 秒，已入队待定时任务核验');
       return;
     }
     try {
@@ -244,8 +255,11 @@ function runFullPipelineFromText_(text, opts) {
 
   // 4) 规格采集 + 写入
   verified.slice(0, maxSpecs).forEach(function(id) {
-    if (Date.now() - startedMs >= timeBudget) {
+    // Crawl4AI 单产品最多 3×40 秒 + 等待，剩余不足 150 秒就交给定时队列。
+    if (timeBudget - (Date.now() - startedMs) < 150000) {
       report.spec_results.push({ product_id: id, status: 'skipped_budget' });
+      try { enqueueSpecificationTask_(id, 'e2e_budget_skipped', 1); } catch (ignore) {}
+      stage('specs:' + id, 'skipped', '剩余不足 150 秒，已入队待定时任务执行');
       return;
     }
     try {

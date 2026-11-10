@@ -72,7 +72,7 @@ const CONFIG = {
   /* --- V2.1 P0：端到端验证入口限额 --- */
   FULL_PIPELINE_MAX_SEGMENTS: 3,
   FULL_PIPELINE_MAX_PRODUCTS: 3,
-  FULL_PIPELINE_MAX_SPECS: 2,
+  FULL_PIPELINE_MAX_SPECS: 1,
 
   /* --- 默认时间窗 ---
    * 0  = 累计全部历史数据(Top N = 历史提及最多的 N 个) ← 默认
