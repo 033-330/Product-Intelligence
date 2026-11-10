@@ -97,8 +97,10 @@ function callOpenRouter(prompt, opts) {
   var raw;
   var data;
   var lastError = null;
+  var deadline = Number(opts.__deadline) || 0;
 
   for (var attempt = 0; attempt < 3; attempt++) {
+    if (deadline && Date.now() >= deadline) break;
     try {
       response = UrlFetchApp.fetch(url, {
         method: 'post',
@@ -175,6 +177,7 @@ function callOpenRouter(prompt, opts) {
     } catch (e) {
       lastError = e;
     }
+    if (deadline && Date.now() >= deadline) break;
     if (attempt < 2) Utilities.sleep(1200 * (attempt + 1));
   }
 

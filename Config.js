@@ -12,12 +12,12 @@ const CONFIG = {
   GEMINI_MODEL: 'gemini-3.1-flash-lite',
   GEMINI_BASE: 'https://generativelanguage.googleapis.com/v1beta/models/',
   // 可用 Script Property OPENROUTER_MODEL 覆盖主模型（不改代码即可换模型）。
-  // 已核对 OpenRouter 免费目录：Nemotron 30B / Nemotron VL 有 :free 变体；
+  // 已核对 OpenRouter 免费目录：抽取类任务优先用低延迟的非推理模型；
   // Step 3.5 Flash 无免费版，故不放入免费链。openrouter/free 作为兜底路由器。
-  OPENROUTER_MODEL: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-  OPENROUTER_FALLBACK_MODELS: ['nvidia/nemotron-3.5-super-vl:free', 'openrouter/free'],
+  OPENROUTER_MODEL: 'nvidia/nemotron-3.5-lightning:free',
+  OPENROUTER_FALLBACK_MODELS: ['google/gemma-4-31b-it:free', 'nvidia/nemotron-3.5-super-vl:free', 'openrouter/free'],
   OPENROUTER_BASE: 'https://openrouter.ai/api/v1/chat/completions',
-  // OpenRouter（nemotron-3.5-super-vl）优先，失败/限流时回退 Gemini。
+  // OpenRouter（nemotron-3.5-lightning）优先，失败/限流时回退 Gemini。
   // 可用 Script Property AI_PROVIDER_ORDER 调整，例如 'openrouter' 或 'gemini,openrouter'。
   AI_PROVIDER_ORDER: ['openrouter', 'gemini'],
 
@@ -30,6 +30,11 @@ const CONFIG = {
    * Gemini 3 的 maxOutputTokens 是「思考 + 正文」合并上限，默认思考会挤掉 JSON 输出。
    * 抽取类任务用最低档（minimal / low）；可用 Script Property AI_THINKING_LEVEL 覆盖。 */
   AI_THINKING_LEVEL: 'low',
+
+  /* --- 单次 AI 调用总预算 ---
+   * 包含所有 provider 尝试与重试；超时后不再发起新的请求，避免 3 次重试 × 2 个
+   * provider 把一次执行拖到 6 分钟上限。可用 Script Property AI_CALL_BUDGET_MS 覆盖。 */
+  AI_CALL_BUDGET_MS: 90000,
 
   /* --- Drive 监控源 --- */
   // 方式 A:监控一个文件夹,每周把报告丢进去即可

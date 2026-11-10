@@ -35,9 +35,21 @@ function callAI(prompt, schema, opts) {
     throw new Error('callAI: prompt 为空。请通过业务入口调用，不要在编辑器中直接运行。');
   }
   opts = opts || {};
+  const aiConfig = typeof CONFIG !== 'undefined' ? CONFIG : {};
+  const budgetMs = Math.max(15000,
+    Number(opts.timeoutMs) || Number(aiConfig.AI_CALL_BUDGET_MS) || 90000);
+  const deadline = Date.now() + budgetMs;
+  const innerOpts = {};
+  Object.keys(opts).forEach(function(k) { innerOpts[k] = opts[k]; });
+  innerOpts.__deadline = deadline;
+
   let order = opts.provider ? [String(opts.provider).toLowerCase()] : aiProviderOrder_();
   const errors = [];
   for (let i = 0; i < order.length; i++) {
+    if (Date.now() >= deadline) {
+      errors.push('AI 总预算 ' + budgetMs + 'ms 已用尽');
+      break;
+    }
     const provider = order[i];
     if (!aiProviderKey_(provider)) {
       errors.push(provider + ': 未配置 API Key');
@@ -45,8 +57,8 @@ function callAI(prompt, schema, opts) {
     }
     try {
       return provider === 'gemini'
-        ? callGeminiProvider_(prompt, schema, opts)
-        : callOpenRouterProvider_(prompt, schema, opts);
+        ? callGeminiProvider_(prompt, schema, innerOpts)
+        : callOpenRouterProvider_(prompt, schema, innerOpts);
     } catch (e) {
       errors.push(provider + ': ' + String(e.message || e).slice(0, 300));
       Logger.log('AI provider 失败，尝试下一个：' + provider + ' — ' + String(e));
@@ -101,7 +113,9 @@ function callGeminiProvider_(prompt, schema, opts) {
   const thinking = geminiThinkingConfig_(model);
   if (thinking) body.generationConfig.thinkingConfig = thinking;
   let lastErr = null;
+  const deadline = Number(opts && opts.__deadline) || 0;
   for (let attempt = 0; attempt < 3; attempt++) {
+    if (deadline && Date.now() >= deadline) break;
     try {
       const res = UrlFetchApp.fetch(url, {
         method: 'post',
@@ -155,6 +169,7 @@ function callGeminiProvider_(prompt, schema, opts) {
       lastErr = e;
       if (e.message && /HTTP 4\d\d/.test(e.message) && !/HTTP 429/.test(e.message)) throw e;
     }
+    if (deadline && Date.now() >= deadline) break;
     if (attempt < 2) Utilities.sleep(1200 * (attempt + 1));
   }
   throw lastErr || new Error('Gemini 请求失败');

@@ -155,8 +155,13 @@ function runFullPipelineFromText_(text, opts) {
     }
     try {
       var docRow = upsertDocument_(issueNo, seg, issueDate);
+      var remainingMs = timeBudget - (Date.now() - startedMs);
       var ext = callAI(buildPassAPrompt_(docRow, String(seg.text || '')), PASS_A_SCHEMA, {
-        maxTokens: Number(CONFIG.AI_MAX_OUTPUT_TOKENS) || 16384
+        maxTokens: Number(CONFIG.AI_MAX_OUTPUT_TOKENS) || 16384,
+        timeoutMs: Math.min(
+          Number(CONFIG.AI_CALL_BUDGET_MS) || 90000,
+          Math.max(15000, remainingMs)
+        )
       });
       var before = stats.added;
       writeDocumentExtraction_(docRow, ext, issueNo, dedup, stats);
