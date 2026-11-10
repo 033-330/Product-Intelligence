@@ -41,8 +41,8 @@ npm run check
 0. 规格抓取器：配置 `CRAWL4AI_API_KEY` 后，`activeSpecCrawler_()` 返回 `crawl4ai`；不配置时回退 `urlfetch`。
    冒烟菜单「4.5) Crawl4AI 规格采集」应能对已核验官网的产品抓回非空规格，并把 `parser_name=crawl4ai_smoke` 写进 `ProductSpecificationsRaw`。
    「【实测】用第14期报告跑完整Pipeline」的弹窗摘要里应包含「规格抓取器：crawl4ai」以及「Crawl4AI 直采：成功 N，失败 M」两行。
-1. 仅配置 `GEMINI_API_KEY`：`testGemi ni()` 成功；额度耗尽/429 时自动回退 OpenRouter。
-2. 仅配置 `OPENROUTER_API_KEY`：`testGemini()` 使用 `nvidia/nemotron-3.5-super-vl:free`（1M 上下文 / 131k 输出）成功；该 ID 失效时会自动回退 `minimax/minimax-m3.1-flash:free`，再回退 `openrouter/auto`。
+1. 仅配置 `GEMINI_API_KEY`：`testGemini()` 成功；额度耗尽/429 时自动回退 OpenRouter。
+2. 仅配置 `OPENROUTER_API_KEY`：`testGemini()` 使用 `nvidia/nemotron-3.5-lightning:free` 成功；该 ID 失效时依次回退 `google/gemma-4-31b-it:free`、`nvidia/nemotron-3.5-super-vl:free`、`openrouter/free`。
 3. 两个 Key 都无效：`callAI` 抛出聚合错误，不能静默返回空结果。
 4. 新建一个无规格产品，运行 `autoSync()`：
    - `SpecificationTasks` 出现 `queued`；
