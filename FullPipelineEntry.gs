@@ -236,7 +236,8 @@ function runFullPipelineFromText_(text, opts) {
       return;
     }
     try {
-      var product = verifyProductForEntry_(id);
+      var product = verifyProductForEntry_(id,
+        Math.min(Date.now() + 90000, startedMs + timeBudget - 30000));
       var st = String(product.official_url_status || '').toLowerCase();
       report.url_results.push({
         product_id: id,
@@ -272,7 +273,9 @@ function runFullPipelineFromText_(text, opts) {
       // 先过入队门禁（验证产品确实可采集），采集完成后把任务标记 done，避免残留 queued 任务。
       var taskId = enqueueSpecificationTask_(id, 'e2e_full_pipeline', 1);
       var parserName = specParserName_();
-      var parsed = extractOfficialSpecs_(String(p.brand || '') + ' ' + String(p.canonical_name || ''), url);
+      var specDeadline = Math.min(Date.now() + 150000, startedMs + timeBudget - 20000);
+      var parsed = extractOfficialSpecs_(
+        String(p.brand || '') + ' ' + String(p.canonical_name || ''), url, specDeadline);
       var saved = saveOfficialSpecs_(p, url, parsed, parserName);
       if (taskId && typeof updateSpecificationTask_ === 'function') {
         updateSpecificationTask_(taskId, {
@@ -316,7 +319,7 @@ function runFullPipelineFromText_(text, opts) {
 }
 
 /** 入口专用：同步核验当前产品，并把它的验证任务结算掉，避免后台重复抓取。 */
-function verifyProductForEntry_(productId) {
+function verifyProductForEntry_(productId, deadlineMs) {
   var product = readTable('Products').filter(function(p) {
     return String(p.product_id) === String(productId);
   })[0] || {};
@@ -324,7 +327,9 @@ function verifyProductForEntry_(productId) {
   if (!isProductUrlVerified_(product)) {
     verifyProductUrls_({
       ids: productId, force: true, limit: 1,
-      deleteInvalid: false, quarantineOnly: true
+      deleteInvalid: false, quarantineOnly: true,
+      deadline_ms: Number(deadlineMs) || 0,
+      per_product_ms: Number(deadlineMs) ? Math.max(30000, Number(deadlineMs) - Date.now()) : 0
     });
     product = readTable('Products').filter(function(p) {
       return String(p.product_id) === String(productId);
@@ -351,15 +356,18 @@ function settleUrlVerificationTask_(productId, product) {
     headers.forEach(function(h, i) { ix[h] = i; });
 
     var ok = isProductUrlVerified_(product);
-    var status = ok ? 'done' : 'failed';
     var urlStatus = String(product.official_url_status || '').toLowerCase();
+    var status = ok ? 'done' : (urlStatus === 'check_failed' ? 'retry' : 'failed');
     var notes = String(product.official_url_notes || '').slice(0, 500);
+    var nextAttempt = urlStatus === 'check_failed'
+      ? new Date(Date.now() + 10 * 60000).toISOString() : '';
 
     tasks.forEach(function(t) {
       for (var r = 1; r < values.length; r++) {
         if (String(values[r][ix.task_id] || '').trim() !== String(t.task_id)) continue;
         if (ix.status != null) sh.getRange(r + 1, ix.status + 1).setValue(status);
         if (ix.result != null) sh.getRange(r + 1, ix.result + 1).setValue(ok ? 'verified' : (urlStatus || 'failed'));
+        if (ix.next_attempt_at != null && nextAttempt) sh.getRange(r + 1, ix.next_attempt_at + 1).setValue(nextAttempt);
         if (ix.checked_at != null) sh.getRange(r + 1, ix.checked_at + 1).setValue(product.official_url_checked_at || '');
         if (ix.finished_at != null) sh.getRange(r + 1, ix.finished_at + 1).setValue(new Date().toISOString());
         if (ix.notes != null) sh.getRange(r + 1, ix.notes + 1).setValue(notes);

@@ -56,6 +56,7 @@ const CONFIG = {
   /* --- V2.1 P0：URL 验证任务队列 --- */
   URL_VERIFY_TASKS_PER_RUN: 3,          // 每轮最多执行多少个验证任务
   URL_VERIFY_TASK_MAX_ATTEMPTS: 3,      // 单任务最多尝试次数
+  PRODUCT_URL_VERIFY_PER_PRODUCT_MS: 70000, // 单个产品 URL 核验的时间上限
 
   /* --- V2.1 P0：文档处理与分块 ---
    * DOCS_PER_RUN 控制单轮处理多少个文档单元；DOC_RUN_BUDGET_MS 是主动停止阈值，

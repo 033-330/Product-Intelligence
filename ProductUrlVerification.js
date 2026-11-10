@@ -143,11 +143,15 @@ function fetchOfficialProductPage_(url) {
  * 只负责取回渲染后的文本，是否匹配仍由 productPageMatches_ 确定性判断。
  * 返回 null 表示未取得可匹配内容；失败原因写入 noteOut。
  */
-function tryRenderedMatch_(url, product, reason, noteOut) {
+function tryRenderedMatch_(url, product, reason, noteOut, deadlineMs) {
   if (!crawl4aiCanRender_()) return { status: 'disabled' };
+  if (deadlineMs && Date.now() + 45000 > Number(deadlineMs)) {
+    noteOut.push('渲染跳过(剩余时间不足): ' + url.slice(0, 140));
+    return { status: 'error' };
+  }
   var rendered;
   try {
-    rendered = crawl4aiRenderPage_(url, String(product.brand || '') + ' ' + String(product.canonical_name || ''));
+    rendered = crawl4aiRenderPage_(url, String(product.brand || '') + ' ' + String(product.canonical_name || ''), deadlineMs);
   } catch (e) {
     // 渲染器自己挂了（配额/超时/反爬）不等于页面不匹配，不能当成硬失败。
     noteOut.push('渲染失败(' + reason + '): ' + url.slice(0, 140) + ' | ' + String(e && e.message ? e.message : e).slice(0, 120));
@@ -160,14 +164,14 @@ function tryRenderedMatch_(url, product, reason, noteOut) {
   return { status: 'matched', code: 200, title: rendered.title, via: 'crawl4ai' };
 }
 
-function inspectOfficialProductUrl_(url, product) {
+function inspectOfficialProductUrl_(url, product, deadlineMs) {
   var renderNotes = [];
   var page;
   try {
     page = fetchOfficialProductPage_(url);
   } catch (e) {
     // 网络层失败：可能是反爬或需要 JS 渲染，交给 Crawl4AI 再试一次。
-    var renderedOnError = tryRenderedMatch_(url, product, '网络错误', renderNotes);
+    var renderedOnError = tryRenderedMatch_(url, product, '网络错误', renderNotes, deadlineMs);
     if (renderedOnError.status === 'matched') return renderedOnError;
     return { status: 'fetch_error', code: 0, message: String(e).slice(0, 200), render_notes: renderNotes };
   }
@@ -179,7 +183,7 @@ function inspectOfficialProductUrl_(url, product) {
       return { status: 'matched', code: code, title: identity.title, via: 'urlfetch' };
     }
     // 2xx 但不含型号：多半是 JS 渲染的空壳页（SPA 官网），用 Crawl4AI 渲染后再判。
-    var rendered = tryRenderedMatch_(url, product, '空壳页', renderNotes);
+    var rendered = tryRenderedMatch_(url, product, '空壳页', renderNotes, deadlineMs);
     if (rendered.status === 'matched') return rendered;
     if (rendered.status === 'error') {
       // 页面确实是空壳，但渲染器没成功：无法下结论，保留待重试，不要隔离。
@@ -192,7 +196,7 @@ function inspectOfficialProductUrl_(url, product) {
     return { status: 'invalid_http', code: code, message: 'HTTP ' + code };
   }
   // 403/405/429/5xx：反爬或暂时失败，Crawl4AI 有独立出口，值得再试一次。
-  var renderedBlocked = tryRenderedMatch_(url, product, 'HTTP ' + code, renderNotes);
+  var renderedBlocked = tryRenderedMatch_(url, product, 'HTTP ' + code, renderNotes, deadlineMs);
   if (renderedBlocked.status === 'matched') return renderedBlocked;
   return { status: 'fetch_error', code: code, message: 'HTTP ' + code, render_notes: renderNotes };
 }
@@ -201,8 +205,15 @@ function inspectOfficialProductUrl_(url, product) {
  * 核验单个产品。返回 { status, url, checked_at, notes }。
  * status: verified / not_found / mismatch / check_failed
  */
-function verifyProductUrl_(product) {
+function verifyProductUrl_(product, deadlineMs) {
   product = product || {};
+  var deadline = Number(deadlineMs) || 0;
+  function remainingMs() {
+    return deadline > 0 ? deadline - Date.now() : Infinity;
+  }
+  function outOfBudget() {
+    return remainingMs() <= 20000;
+  }
   var checkedAt = new Date().toISOString();
   var brand = String(product.brand || '');
   var name = String(product.canonical_name || '');
@@ -221,7 +232,7 @@ function verifyProductUrl_(product) {
       hardInvalid = true;
       return null;
     }
-    var result = inspectOfficialProductUrl_(url, product);
+    var result = inspectOfficialProductUrl_(url, product, deadline);
     if (result.status === 'matched') {
       return {
         status: 'verified', url: url, checked_at: checkedAt,
@@ -250,14 +261,24 @@ function verifyProductUrl_(product) {
   if (hit) return hit;
 
   var candidates = [];
-  try {
-    candidates = searchOfficialProductCandidates_(brand + ' ' + name);
-  } catch (e) {
+  if (outOfBudget()) {
     transient = true;
-    notes.push('官网搜索失败: ' + String(e).slice(0, 120));
+    notes.push('核验时间不足，已跳过官网搜索');
+  } else {
+    try {
+      candidates = searchOfficialProductCandidates_(brand + ' ' + name, deadline);
+    } catch (e) {
+      transient = true;
+      notes.push('官网搜索失败: ' + String(e).slice(0, 120));
+    }
   }
 
-  for (var i = 0; i < candidates.length && i < 12; i++) {
+  for (var i = 0; i < candidates.length && i < 8; i++) {
+    if (outOfBudget()) {
+      transient = true;
+      notes.push('核验时间不足，剩余候选未检查');
+      break;
+    }
     hit = tryUrl(candidates[i]);
     if (hit) return hit;
   }
@@ -389,6 +410,9 @@ function verifyProductUrls_(options) {
   }
   var refreshMs = (Number(CONFIG.PRODUCT_URL_VERIFY_REFRESH_DAYS) || 7) * 86400000;
   var now = Date.now();
+  var perProductMs = Math.max(30000,
+    Number(options.per_product_ms) || Number(CONFIG.PRODUCT_URL_VERIFY_PER_PRODUCT_MS) || 70000);
+  var overallDeadline = Number(options.deadline_ms) || 0;
 
   var products = readTable('Products').filter(function(p) {
     var status = String(p.status || '').toLowerCase();
@@ -415,8 +439,14 @@ function verifyProductUrls_(options) {
 
   products.forEach(function(p) {
     var outcome;
+    if (overallDeadline && Date.now() >= overallDeadline) {
+      results.push({ product_id: p.product_id, status: 'skipped_budget' });
+      return;
+    }
+    var productDeadline = Date.now() + perProductMs;
+    if (overallDeadline) productDeadline = Math.min(productDeadline, overallDeadline);
     try {
-      outcome = verifyProductUrl_(p);
+      outcome = verifyProductUrl_(p, productDeadline);
     } catch (e) {
       outcome = {
         status: 'check_failed',
@@ -615,7 +645,11 @@ function processUrlVerificationTasks_(limit) {
     });
 
     try {
-      verifyProductUrls_({ ids: pid, force: true, limit: 1, deleteInvalid: false, quarantineOnly: true });
+      var productMs = Number(CONFIG.PRODUCT_URL_VERIFY_PER_PRODUCT_MS) || 70000;
+      verifyProductUrls_({
+        ids: pid, force: true, limit: 1, deleteInvalid: false, quarantineOnly: true,
+        deadline_ms: Date.now() + productMs, per_product_ms: productMs
+      });
       var product = readTable('Products').filter(function(p) {
         return String(p.product_id) === pid;
       })[0] || {};

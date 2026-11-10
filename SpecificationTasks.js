@@ -102,9 +102,13 @@ function guessProductUrlCandidates_(productName) {
   return out;
 }
 
-function searchOfficialProductCandidates_(productName) {
+function searchOfficialProductCandidates_(productName, deadlineMs) {
   var q = String(productName || '').trim();
   if (!q) return [];
+  var deadline = Number(deadlineMs) || 0;
+  function outOfBudget(minMs) {
+    return deadline > 0 && Date.now() + (minMs || 30000) > deadline;
+  }
 
   // 1) slug 猜测候选排最前：零搜索成本，verifyProductUrl_ 会逐个 fetch 验证存在性。
   var slugCandidates = guessProductUrlCandidates_(q);
@@ -121,6 +125,7 @@ function searchOfficialProductCandidates_(productName) {
     'https://www.html.duckduckgo.com/html/?q=' + encodeURIComponent(query)
   ];
   for (var e=0;e<engines.length;e++) {
+    if (outOfBudget(30000)) break;
     try {
       var response = UrlFetchApp.fetch(engines[e], {muteHttpExceptions:true, followRedirects:true,
         headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36'}});
@@ -157,9 +162,10 @@ function searchOfficialProductCandidates_(productName) {
     } catch(ignore) { /* try next public search engine */ }
   }
   // 三个搜索引擎都拿不到可用链接时（常见于 GAS 出口被拦或结果页是 JS 渲染），用 Crawl4AI 渲染搜索结果页兜底。
-  if (all.length <= slugCandidates.length && typeof crawl4aiCanRender_ === 'function' && crawl4aiCanRender_()) {
+  if (all.length <= slugCandidates.length && !outOfBudget(60000)
+      && typeof crawl4aiCanRender_ === 'function' && crawl4aiCanRender_()) {
     try {
-      crawl4aiDiscoverOfficialUrls_(query).forEach(function(u) {
+      crawl4aiDiscoverOfficialUrls_(query, deadline).forEach(function(u) {
         if (!seenAll[u]) { seenAll[u] = true; all.push(u); }
       });
     } catch (e) { Logger.log('Crawl4AI 搜索结果兜底失败：' + String(e).slice(0, 200)); }
@@ -193,8 +199,8 @@ function searchOfficialProductPage_(productName) {
  * urlfetch → 本地抓 HTML + Gemini/OpenRouter 抽取（无 Crawl4AI Key 时的回退）
  * 两条路径输出结构一致，saveOfficialSpecs_() 无需区分。
  */
-function extractOfficialSpecs_(productName, url) {
-  if (activeSpecCrawler_() === 'crawl4ai') return extractSpecsViaCrawl4AI_(productName, url);
+function extractOfficialSpecs_(productName, url, deadlineMs) {
+  if (activeSpecCrawler_() === 'crawl4ai') return extractSpecsViaCrawl4AI_(productName, url, deadlineMs);
   return extractOfficialSpecsViaFetch_(productName, url);
 }
 

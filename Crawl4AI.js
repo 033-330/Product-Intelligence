@@ -53,13 +53,20 @@ function specParserName_() {
  * 调用 Crawl4AI Cloud /extract：instruction 描述抽取规则，schema 约束输出。
  * 返回解析后的对象；失败抛出带 HTTP 状态的错误，便于任务队列记录 last_error。
  */
-function crawl4aiExtract_(url, instruction, schema) {
+function crawl4aiExtract_(url, instruction, schema, deadlineMs) {
   var apiKey = crawl4aiApiKey_();
   if (!apiKey) throw new Error('缺少 Script Property: CRAWL4AI_API_KEY');
   var base = String(scriptProperty_('CRAWL4AI_BASE') || C4AI_DEFAULT_BASE_).replace(/\/+$/, '');
   var body = { url: url, instruction: instruction, schema: schema };
+  var deadline = Number(deadlineMs) || 0;
+  function outOfBudget() {
+    return deadline > 0 && Date.now() + C4AI_TIMEOUT_MS_ + 5000 > deadline;
+  }
 
   for (var attempt = 1; attempt <= C4AI_MAX_ATTEMPTS_; attempt++) {
+    if (outOfBudget()) {
+      throw new Error('Crawl4AI 剩余时间不足，已跳过（避免拖垮整轮执行）');
+    }
     var response;
     try {
       response = UrlFetchApp.fetch(base + '/extract', {
@@ -72,7 +79,7 @@ function crawl4aiExtract_(url, instruction, schema) {
       });
     } catch (e) {
       // 渲染型页面容易超时，重试一次即可，避免整个队列卡在 6 分钟上限上。
-      if (attempt < C4AI_MAX_ATTEMPTS_) { Utilities.sleep(4000 * attempt); continue; }
+      if (attempt < C4AI_MAX_ATTEMPTS_ && !outOfBudget()) { Utilities.sleep(4000 * attempt); continue; }
       throw new Error('Crawl4AI 请求超时或网络错误（已重试 ' + C4AI_MAX_ATTEMPTS_ + ' 次）：' + (e && e.message ? e.message : e));
     }
 
@@ -86,14 +93,14 @@ function crawl4aiExtract_(url, instruction, schema) {
     }
     if (status === 402) throw new Error('Crawl4AI 余额不足：' + String(text).slice(0, 200));
     // 429 限流：社区免费档 10 req/60s，响应带 retry_after_s，按提示等待后重试。
-    if (status === 429 && attempt < C4AI_MAX_ATTEMPTS_) {
+    if (status === 429 && attempt < C4AI_MAX_ATTEMPTS_ && !outOfBudget()) {
       var waitS = 5;
       try { var body429 = JSON.parse(text); if (body429.retry_after_s) waitS = Math.max(1, Number(body429.retry_after_s)); } catch (e429) {}
       Utilities.sleep(Math.min(30, waitS) * 1000);
       continue;
     }
     // 5xx / 503 busy 不计费，可安全重试
-    if (attempt < C4AI_MAX_ATTEMPTS_ && (status === 503 || status >= 500)) {
+    if (attempt < C4AI_MAX_ATTEMPTS_ && !outOfBudget() && (status === 503 || status >= 500)) {
       Utilities.sleep(4000 * attempt);
       continue;
     }
@@ -162,8 +169,8 @@ function c4aiPageInstruction_(productName, url) {
  * 返回结构故意与 extractPageIdentity_() 对齐：strongText + fullText，
  * 让 URL 核验继续用确定性匹配，不把真伪判断交给模型。
  */
-function crawl4aiRenderPage_(url, productName) {
-  var payload = crawl4aiExtract_(url, c4aiPageInstruction_(productName, url), c4aiRenderSchema_());
+function crawl4aiRenderPage_(url, productName, deadlineMs) {
+  var payload = crawl4aiExtract_(url, c4aiPageInstruction_(productName, url), c4aiRenderSchema_(), deadlineMs);
   var title = String(payload.page_title || '').trim();
   if (!title) throw new Error('Crawl4AI 未能渲染出页面内容（可能是反爬或需要验证码）');
   var strongText = [title, payload.page_h1 || '', payload.product_name_on_page || ''].join(' | ');
@@ -179,7 +186,7 @@ function crawl4aiRenderPage_(url, productName) {
  * 搜索引擎抓取失败时的 Crawl4AI 兜底：渲染搜索结果页并取回链接。
  * 只返回通过域名白名单的 URL，不做任何推断。
  */
-function crawl4aiDiscoverOfficialUrls_(query) {
+function crawl4aiDiscoverOfficialUrls_(query, deadlineMs) {
   var searchUrl = 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query);
   var schema = {
     type: 'object',
@@ -200,7 +207,7 @@ function crawl4aiDiscoverOfficialUrls_(query) {
   };
   var instruction = 'Render this search results page and list ONLY the organic result links it actually shows. '
     + 'Copy each href exactly as displayed, do not invent or guess URLs. Return up to 10 links in page order.';
-  var payload = crawl4aiExtract_(searchUrl, instruction, schema);
+  var payload = crawl4aiExtract_(searchUrl, instruction, schema, deadlineMs);
   var links = Array.isArray(payload.links) ? payload.links : [];
   var out = [], seen = {};
   links.forEach(function(l) {
@@ -284,9 +291,9 @@ function c4aiFlatToSpecs_(obj) {
  * 用 Crawl4AI 抽取单个产品的官方规格。
  * 输出与 extractOfficialSpecsViaFetch_ 一致，可直接交给 saveOfficialSpecs_()。
  */
-function extractSpecsViaCrawl4AI_(productName, url) {
+function extractSpecsViaCrawl4AI_(productName, url, deadlineMs) {
   if (!isAllowedOfficialProductUrl_(url)) throw new Error('不是允许访问的品牌官网：' + url);
-  var payload = crawl4aiExtract_(url, c4aiInstruction_(productName, url), c4aiSpecSchema_());
+  var payload = crawl4aiExtract_(url, c4aiInstruction_(productName, url), c4aiSpecSchema_(), deadlineMs);
   if (payload && String(payload.page_match).toLowerCase() === 'false') {
     throw new Error('页面与产品不匹配（Crawl4AI page_match=false）：' + url);
   }
