@@ -3,9 +3,8 @@
  * OpenRouterClient.gs
  *
  * 独立的 OpenRouter AI 适配器。
- * 保留为 Gemini 额度用尽时的备用提供方，默认主模型为
- * nvidia/nemotron-3.5-super-vl:free（1M 上下文、131k 输出，支持 structured_outputs），
- * 失效时依次回退 minimax/minimax-m3.1-flash:free 与 openrouter/auto。
+ * 默认主模型为 openrouter/free（Free Models Router，自动路由到支持
+ * structured outputs 的免费模型），失效时依次回退其他 :free 模型。
  *
  * Script Properties 必须包含：
  * OPENROUTER_API_KEY
@@ -123,7 +122,31 @@ function callOpenRouter(prompt, opts) {
         );
       }
 
-      if (status >= 200 && status < 300) break;
+      if (status >= 200 && status < 300) {
+        var first = data.choices && data.choices[0];
+        var firstText = first && first.message && first.message.content;
+        var hasText = typeof firstText === 'string' && !!firstText.trim();
+        var errorFinish = !!(first && first.finish_reason === 'error');
+        if (hasText && !errorFinish) break;
+
+        // 上游返回 error / 空文本时换下一个候选模型，而不是直接放弃整个 provider。
+        lastError = new Error(
+          'OpenRouter 返回成功，但没有可用文本。' +
+          ' model=' + (data.model || model) +
+          ', finish_reason=' + ((first && first.finish_reason) || 'unknown') +
+          ', response_id=' + (data.id || 'unknown')
+        );
+        if (modelQueue.length > 1 && modelSwitches < 3) {
+          modelSwitches++;
+          modelQueue.shift();
+          model = modelQueue[0];
+          payload.model = model;
+          Logger.log('OpenRouter 无可用文本/上游报错，改用 ' + model);
+          attempt--;
+          continue;
+        }
+        break;
+      }
 
       var message = data.error && data.error.message
         ? data.error.message

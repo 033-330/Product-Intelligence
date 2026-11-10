@@ -12,10 +12,10 @@ const CONFIG = {
   GEMINI_MODEL: 'gemini-3.1-flash-lite',
   GEMINI_BASE: 'https://generativelanguage.googleapis.com/v1beta/models/',
   // 可用 Script Property OPENROUTER_MODEL 覆盖主模型（不改代码即可换模型）。
-  // cohere/north-mini-code:free：256K context、64K output、原生 JSON schema，适合 Pass A 大 JSON 抽取。
-  OPENROUTER_MODEL: 'cohere/north-mini-code:free',
-  // 主模型失效（改名/下线/限流）时按顺序自动换下一个；openrouter/auto 由官方自动路由，不会因 ID 失效报错。
-  OPENROUTER_FALLBACK_MODELS: ['nvidia/nemotron-3.5-super-vl:free', 'openrouter/auto'],
+  // openrouter/free：Free Models Router，按请求所需能力（含 structured outputs）自动路由到可用免费模型。
+  OPENROUTER_MODEL: 'openrouter/free',
+  // 主路由失效时按顺序换下一个；仅使用 :free 模型，避免回退到付费模型产生费用。
+  OPENROUTER_FALLBACK_MODELS: ['nvidia/nemotron-3.5-super-vl:free', 'minimax/minimax-m3.1-flash:free'],
   OPENROUTER_BASE: 'https://openrouter.ai/api/v1/chat/completions',
   // OpenRouter（nemotron-3.5-super-vl）优先，失败/限流时回退 Gemini。
   // 可用 Script Property AI_PROVIDER_ORDER 调整，例如 'openrouter' 或 'gemini,openrouter'。
