@@ -107,6 +107,13 @@ function scriptProperty_(key) {
   }
 }
 
+function numberProperty_(key, fallback) {
+  var raw = scriptProperty_(key);
+  if (raw === '') return fallback;
+  var n = Number(raw);
+  return isNaN(n) ? fallback : n;
+}
+
 function getApiKey_() {
   return scriptProperty_('GEMINI_API_KEY');
 }

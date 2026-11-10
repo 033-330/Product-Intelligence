@@ -37,12 +37,12 @@ function smoke_fullPipelineFromInputSheet() {
   FULL_PIPELINE_PROGRESS_SHEET_ = sh;
   try {
     report = runFullPipelineFromText_(text, {
-      maxSegments: Number(scriptProperty_('FULL_PIPELINE_MAX_SEGMENTS'))
-        || Number(CONFIG.FULL_PIPELINE_MAX_SEGMENTS) || 3,
-      maxProducts: Number(scriptProperty_('FULL_PIPELINE_MAX_PRODUCTS'))
-        || Number(CONFIG.FULL_PIPELINE_MAX_PRODUCTS) || 3,
-      maxSpecs: Number(scriptProperty_('FULL_PIPELINE_MAX_SPECS'))
-        || Number(CONFIG.FULL_PIPELINE_MAX_SPECS) || 2
+      maxSegments: numberProperty_('FULL_PIPELINE_MAX_SEGMENTS',
+        Number(CONFIG.FULL_PIPELINE_MAX_SEGMENTS) || 3),
+      maxProducts: numberProperty_('FULL_PIPELINE_MAX_PRODUCTS',
+        Number(CONFIG.FULL_PIPELINE_MAX_PRODUCTS) || 3),
+      maxSpecs: numberProperty_('FULL_PIPELINE_MAX_SPECS',
+        Number(CONFIG.FULL_PIPELINE_MAX_SPECS) || 1)
     });
   } catch (e) {
     report = {
@@ -75,7 +75,9 @@ function runFullPipelineFromText_(text, opts) {
   var startedMs = Date.now();
   var maxSegments = Math.max(1, Number(opts.maxSegments) || 3);
   var maxProducts = Math.max(1, Number(opts.maxProducts) || 3);
-  var maxSpecs = Math.max(0, Number(opts.maxSpecs) || 2);
+  var maxSpecs = (opts.maxSpecs === undefined || opts.maxSpecs === null || opts.maxSpecs === '')
+    ? (Number(CONFIG.FULL_PIPELINE_MAX_SPECS) || 1)
+    : Math.max(0, Number(opts.maxSpecs) || 0);
   var timeBudget = Math.max(60000,
     Number(opts.budgetMs) || Number(CONFIG.DOC_RUN_BUDGET_MS) || 240000);
 
