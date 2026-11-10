@@ -34,9 +34,12 @@ function smoke_fullPipelineFromInputSheet() {
   var report;
   try {
     report = runFullPipelineFromText_(text, {
-      maxSegments: Number(CONFIG.FULL_PIPELINE_MAX_SEGMENTS) || 3,
-      maxProducts: Number(CONFIG.FULL_PIPELINE_MAX_PRODUCTS) || 3,
-      maxSpecs: Number(CONFIG.FULL_PIPELINE_MAX_SPECS) || 2
+      maxSegments: Number(scriptProperty_('FULL_PIPELINE_MAX_SEGMENTS'))
+        || Number(CONFIG.FULL_PIPELINE_MAX_SEGMENTS) || 3,
+      maxProducts: Number(scriptProperty_('FULL_PIPELINE_MAX_PRODUCTS'))
+        || Number(CONFIG.FULL_PIPELINE_MAX_PRODUCTS) || 3,
+      maxSpecs: Number(scriptProperty_('FULL_PIPELINE_MAX_SPECS'))
+        || Number(CONFIG.FULL_PIPELINE_MAX_SPECS) || 2
     });
   } catch (e) {
     report = {
@@ -77,6 +80,7 @@ function runFullPipelineFromText_(text, opts) {
     text_chars: String(text || '').length,
     stages: [],
     segments: [],
+    total_segments: 0,
     products: [],
     url_results: [],
     spec_results: [],
@@ -110,6 +114,7 @@ function runFullPipelineFromText_(text, opts) {
 
   var segResult = buildDeterministicSegments_(fakeFile, text);
   var allSegs = segResult.documents || [];
+  report.total_segments = allSegs.length;
   var segs = allSegs.slice(0, maxSegments);
   stage('split', segs.length ? 'ok' : 'fail',
     '共 ' + allSegs.length + ' 个分块，本次处理 ' + segs.length
@@ -168,7 +173,8 @@ function runFullPipelineFromText_(text, opts) {
       }
 
       stage('passA:' + seg.segment_id, 'ok',
-        '识别产品 ' + ((ext.products || []).length)
+        '【' + (seg.parent_section || '正文') + ' / ' + String(seg.text || '').length + '字】'
+        + '识别产品 ' + ((ext.products || []).length)
         + '，新增明细 ' + (stats.added - before)
         + (diag ? '，output_tokens=' + (diag.outputTokens || 0) : '')
         + (ext.__truncated ? '（输出被截断）' : ''));
@@ -198,6 +204,11 @@ function runFullPipelineFromText_(text, opts) {
   });
   stage('entities', ids.length ? 'ok' : 'warn',
     '本次涉及产品 ' + Object.keys(productIds).length + ' 个，本次验证前 ' + ids.length + ' 个');
+  if (!ids.length && allSegs.length > segs.length) {
+    stage('hint', 'warn',
+      '前 ' + segs.length + ' 块未识别到产品，全文共 ' + allSegs.length
+      + ' 块；可设置脚本属性 FULL_PIPELINE_MAX_SEGMENTS 加大处理块数后重跑');
+  }
 
   // 3) URL 验证（复用任务队列 + 现有核验链路）
   var verified = [];
@@ -355,6 +366,12 @@ function buildFullPipelineSummary_(report) {
     return r.status === 'verified';
   }).length);
   lines.push('规格写入：' + Number(report.spec_saved || 0) + ' 条');
+  if (!(report.products || []).length
+      && Number(report.total_segments || 0) > (report.segments || []).length) {
+    lines.push('提示：前 ' + (report.segments || []).length + ' 块未识别到产品（共 '
+      + Number(report.total_segments || 0) + ' 块），可在脚本属性设置 '
+      + 'FULL_PIPELINE_MAX_SEGMENTS 后重跑');
+  }
   if ((report.errors || []).length) {
     lines.push('错误：' + report.errors.slice(0, 3).join(' | ').slice(0, 300));
   }
@@ -380,6 +397,16 @@ function writeFullPipelineReport_(sh, report) {
     'out=' + Number((report.tokens || {}).output_tokens || 0)
   ]);
   rows.push(['ok', report.ok ? 'true' : 'false', report.error || '']);
+
+  rows.push(['--- 本次分块 ---', '', '']);
+  (report.segments || []).forEach(function(s) {
+    rows.push([
+      s.segment_id || '',
+      String(s.type || ''),
+      '【' + String(s.section || '') + '】' + Number(s.chars || 0) + ' 字 / ~'
+        + Number(s.tokens_est || 0) + ' tokens'
+    ]);
+  });
 
   (report.errors || []).forEach(function(e, i) {
     rows.push(['error-' + (i + 1), 'fail', e]);
