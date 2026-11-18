@@ -145,8 +145,10 @@ function officialCategorySeeds_(queries) {
   return seeds;
 }
 
-function extractOfficialUrlsFromSearchHtml_(html, domains) {
+function extractOfficialUrlsFromSearchHtml_(html, domains, baseUrl) {
   var found = [], seen = {};
+  var originMatch = String(baseUrl || '').match(/^(https?:\/\/[^/]+)/i);
+  var origin = originMatch ? originMatch[1] : '';
   var re = /href=["']([^"']+)["']/gi, m;
   while ((m = re.exec(html)) !== null && found.length < 60) {
     var href = m[1].replace(/&amp;/g, '&');
@@ -168,6 +170,8 @@ function extractOfficialUrlsFromSearchHtml_(html, domains) {
       }
     } else if (href.indexOf('//') === 0) {
       target = 'https:' + href;
+    } else if (href.charAt(0) === '/' && origin) {
+      target = origin + href;
     }
     if (!target || !isCandidateUrlAllowed_(target, domains)) continue;
     if (!isLikelyProductPath_(target)) continue;
@@ -226,16 +230,17 @@ function searchOfficialProductCandidates_(productName, deadlineMs, options) {
     });
   });
 
-  function addFound(html) {
-    extractOfficialUrlsFromSearchHtml_(String(html || '').slice(0, 500000), domains).forEach(addCandidateUrl);
+  function addFound(html, baseUrl) {
+    extractOfficialUrlsFromSearchHtml_(String(html || '').slice(0, 500000), domains, baseUrl)
+      .forEach(addCandidateUrl);
   }
 
   if (!outOfBudget(30000) && requests.length) {
     try {
       var responses = UrlFetchApp.fetchAll(requests);
-      responses.forEach(function(response) {
+      responses.forEach(function(response, i) {
         if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) return;
-        addFound(response.getContentText());
+        addFound(response.getContentText(), requests[i] && requests[i].url);
       });
     } catch (e) {
       requests.forEach(function(req) {
@@ -245,7 +250,7 @@ function searchOfficialProductCandidates_(productName, deadlineMs, options) {
             muteHttpExceptions: true, followRedirects: true, headers: req.headers
           });
           if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) return;
-          addFound(response.getContentText());
+          addFound(response.getContentText(), req.url);
         } catch (ignore) {}
       });
     }
