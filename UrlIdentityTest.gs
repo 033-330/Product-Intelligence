@@ -223,6 +223,7 @@ function smoke_urlIdentityTest(productId, options) {
   candidates = candidates.slice(0, 16);
   add('candidates', 'info', candidates.length + ' 条');
 
+  var matchedUrls = [];
   if (candidates.length) {
     var fetchStart = Date.now();
     var pages = fetchOfficialProductPages_(candidates, deadline);
@@ -231,12 +232,18 @@ function smoke_urlIdentityTest(productId, options) {
       var page = pages[url] || { code: 0, html: '' };
       var info = extractPageIdentity_(page.html);
       var matched = productPageMatchesMulti_(product, info, officialNames);
+      if (matched) matchedUrls.push(url);
       add('page:' + (i + 1), matched ? 'matched' : 'no',
-        'HTTP ' + Number(page.code || 0) + ' | ' + String(info.title || '').slice(0, 120)
+        'matched=' + (matched ? 'YES' : 'NO')
+        + ' | HTTP ' + Number(page.code || 0) + ' | ' + String(info.title || '').slice(0, 120)
         + ' | ld=' + JSON.stringify((info.identifiers || []).slice(0, 5))
         + ' | ' + url.slice(0, 160));
     });
   }
+  var wouldBe = matchedUrls.length === 1 ? 'verified'
+    : (matchedUrls.length > 1 ? 'ambiguous' : 'no_match');
+  add('would_be', wouldBe, 'matches=' + matchedUrls.length
+    + (matchedUrls.length ? ' | ' + matchedUrls.slice(0, 5).join(' | ') : ''));
 
   if (options.write === true) {
     var verifyStart = Date.now();
