@@ -8,6 +8,8 @@
  *   - Top N Topics = 全历史(或指定窗口)mention_count 累计降序
  * ============================================================ */
 
+var IDENTITY_RESOLVE_RUN_COUNT_ = 0;
+
 /* ---------- Issue / Document 登记(存在则复用) ---------- */
 
 function ensureIssue_(issueNo, date, rawRef) {
@@ -287,6 +289,7 @@ function createProduct_(name, brand, category, issueNo, opts) {
 }
 
 function resolveProducts_(extracts, issueNo, sourceText) {
+  IDENTITY_RESOLVE_RUN_COUNT_ = 0;
   const aliasIndex = buildAliasIndex_();
   const unresolved = [];
   const filtered = [];
@@ -386,7 +389,27 @@ function resolveProducts_(extracts, issueNo, sourceText) {
         issueNo,
         { nameAsWritten: xname, nameSource: verdict.source }
       );
-      if (x.product_id) addAlias_(xname, x.product_id);
+      if (x.product_id) {
+        addAlias_(xname, x.product_id);
+        var maxIdentity = Math.max(0, Number(CONFIG.PRODUCT_IDENTITY_MAX_PER_RUN) || 0);
+        var identityEnabled = String(
+          scriptProperty_('PRODUCT_IDENTITY_ENABLED')
+          || (CONFIG.PRODUCT_IDENTITY_ENABLED !== false ? '1' : '0')
+        ).toLowerCase();
+        if (identityEnabled !== '0' && identityEnabled !== 'false'
+            && IDENTITY_RESOLVE_RUN_COUNT_ < maxIdentity
+            && typeof ensureProductIdentity_ === 'function') {
+          IDENTITY_RESOLVE_RUN_COUNT_++;
+          try {
+            var created = readTable('Products').filter(function(p) {
+              return String(p.product_id) === String(x.product_id);
+            })[0];
+            if (created) ensureProductIdentity_(created, Date.now() + 120000);
+          } catch (e) {
+            Logger.log('产品身份解析失败 ' + x.product_id + '：' + String(e && e.message ? e.message : e));
+          }
+        }
+      }
     });
   }
   return new Set(filtered.map(x => x.product_id).filter(Boolean));

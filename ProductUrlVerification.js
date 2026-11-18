@@ -227,6 +227,35 @@ function saveProductIdentity_(product, identity) {
   }
 }
 
+function storedProductIdentity_(product) {
+  var aliases = [];
+  try {
+    aliases = readTable('ProductAliases').filter(function(a) {
+      return String(a.product_id || '') === String(product.product_id || '');
+    }).map(function(a) { return String(a.alias || '').trim(); }).filter(Boolean);
+  } catch (e) {}
+  return {
+    official_names: product.official_name ? [String(product.official_name)] : [],
+    aliases: aliases,
+    model_codes: [],
+    brand_domains: detectBrandDomains_(
+      String(product.brand || '') + ' ' + String(product.canonical_name || '')),
+    search_queries: [],
+    confidence: 'high',
+    notes: [],
+    source: String(product.identity_source || 'stored')
+  };
+}
+
+function ensureProductIdentity_(product, deadlineMs) {
+  var checked = Date.parse(String(product.identity_checked_at || ''));
+  var fresh = isFinite(checked) && (Date.now() - checked) < 30 * 24 * 3600 * 1000;
+  if (product.official_name && fresh) return storedProductIdentity_(product);
+  var identity = resolveProductIdentity_(product, deadlineMs);
+  if (identity && identity.source === 'ai') saveProductIdentity_(product, identity);
+  return identity;
+}
+
 function isProductUrlVerified_(product) {
   return !!product
     && String(product.official_url || '').trim() !== ''
@@ -596,7 +625,7 @@ function verifyProductUrl_(product, deadlineMs) {
   var brand = String(product.brand || '');
   var name = String(product.canonical_name || '');
   var existing = String(product.official_url || '').trim();
-  var identity = resolveProductIdentity_(product, deadline);
+  var identity = ensureProductIdentity_(product, deadline);
   var officialNames = identityOfficialNames_(identity, product);
   var queries = identityQueries_(identity, product);
   var domains = identityDomains_(identity, product);
