@@ -14,6 +14,212 @@
 
 var PRODUCT_URL_FETCH_UA_ = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36';
 
+var PRODUCT_IDENTITY_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    official_names: { type: 'ARRAY', items: { type: 'STRING' } },
+    aliases: { type: 'ARRAY', items: { type: 'STRING' } },
+    model_codes: { type: 'ARRAY', items: { type: 'STRING' } },
+    brand_domains: { type: 'ARRAY', items: { type: 'STRING' } },
+    search_queries: { type: 'ARRAY', items: { type: 'STRING' } },
+    confidence: { type: 'STRING' },
+    notes: { type: 'ARRAY', items: { type: 'STRING' } }
+  },
+  required: ['official_names', 'search_queries', 'brand_domains']
+};
+
+var URL_NON_OFFICIAL_HOSTS_ = [
+  'google.com', 'bing.com', 'duckduckgo.com', 'baidu.com', 'sogou.com', 'yandex.com',
+  'amazon.com', 'amazon.co.uk', 'ebay.com', 'aliexpress.com', 'alibaba.com', 'taobao.com',
+  'jd.com', 'tmall.com', 'youtube.com', 'reddit.com', 'facebook.com', 'instagram.com',
+  'twitter.com', 'x.com', 'wikipedia.org', 'zhihu.com', 'bilibili.com'
+];
+
+function asStringArray_(value, limit) {
+  var raw = Array.isArray(value) ? value : (value == null || value === '' ? [] : [value]);
+  var out = [], seen = {};
+  for (var i = 0; i < raw.length && out.length < (limit || 8); i++) {
+    var s = String(raw[i] == null ? '' : raw[i]).trim().replace(/[\r\n]+/g, ' ');
+    if (s.length < 2 || s.length > 120) continue;
+    var key = normalizeAlias(s);
+    if (!key || seen[key]) continue;
+    seen[key] = 1;
+    out.push(s);
+  }
+  return out;
+}
+
+function identityCacheKey_(product) {
+  return 'url_identity:' + normalizeAlias(
+    String(product.brand || '') + ' ' + String(product.canonical_name || ''));
+}
+
+function fallbackProductIdentity_(product, note) {
+  var name = String(product.canonical_name || '');
+  var brand = String(product.brand || '');
+  var out = {
+    official_names: [], aliases: [], model_codes: [],
+    brand_domains: detectBrandDomains_(brand + ' ' + name),
+    search_queries: [brand + ' ' + name].filter(function(q) { return q.trim().length > 1; }),
+    confidence: 'low', notes: [], source: 'fallback'
+  };
+  if (note) out.notes.push(String(note).slice(0, 160));
+  return out;
+}
+
+function buildIdentityPrompt_(product) {
+  var brand = String(product.brand || '');
+  var name = String(product.canonical_name || '');
+  return [
+    '你是产品身份解析助手。输入的名称可能来自新闻/论坛，常用缩写、昵称或中文简称，不一定是官方产品名。',
+    '请基于输入推断最可能的官方产品名、型号码、品牌官网主域名和多条搜索词，帮助后续抓取官网页面验证。',
+    '严格规则：不要输出任何 URL；不要输出电商/搜索引擎/百科域名；不确定的型号也要给候选并降低 confidence；候选项必须能在后续官网页面抓取中被验证。',
+    'official_names 给 1-4 个最可能的官方全名；aliases 给 1-6 个常见缩写/简称；model_codes 给型号或代号；brand_domains 只给主域名（如 logitechg.com、razer.com）；search_queries 给 2-5 条搜索词，优先“品牌 + 官方名/型号”，不要加 buy。',
+    '',
+    '品牌: ' + brand,
+    '名称: ' + name,
+    '分类: ' + String(product.category || '')
+  ].join('\n');
+}
+
+function resolveProductIdentity_(product, deadlineMs) {
+  var enabled = String(
+    scriptProperty_('PRODUCT_IDENTITY_ENABLED')
+    || (typeof CONFIG !== 'undefined' && CONFIG.PRODUCT_IDENTITY_ENABLED !== false ? '1' : '0')
+  ).toLowerCase();
+  if (enabled === '0' || enabled === 'false') return fallbackProductIdentity_(product);
+  if (typeof hasConfiguredAIKey_ === 'function' && !hasConfiguredAIKey_()) {
+    return fallbackProductIdentity_(product);
+  }
+
+  var cacheKey = identityCacheKey_(product);
+  var cached = cacheGet_(cacheKey);
+  if (cached && cached.search_queries && cached.search_queries.length) return cached;
+
+  var remaining = Number(deadlineMs) ? Number(deadlineMs) - Date.now() : 60000;
+  if (remaining < 45000) return fallbackProductIdentity_(product, '时间不足，跳过 AI 身份解析');
+
+  var timeoutMs = Math.max(5000, Math.min(
+    Number(CONFIG.PRODUCT_IDENTITY_TIMEOUT_MS) || 20000,
+    remaining - 40000
+  ));
+  try {
+    var raw = callAI(buildIdentityPrompt_(product), PRODUCT_IDENTITY_SCHEMA, {
+      maxTokens: 1024,
+      timeoutMs: timeoutMs
+    }) || {};
+    var fallback = fallbackProductIdentity_(product);
+    var out = {
+      official_names: asStringArray_(raw.official_names, 4),
+      aliases: asStringArray_(raw.aliases, 6),
+      model_codes: asStringArray_(raw.model_codes, 5),
+      brand_domains: asStringArray_(raw.brand_domains, 5).filter(function(d) {
+        return /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(d);
+      }),
+      search_queries: asStringArray_(raw.search_queries, 5),
+      confidence: String(raw.confidence || 'medium').slice(0, 20),
+      notes: asStringArray_(raw.notes, 3),
+      source: 'ai'
+    };
+    if (!out.search_queries.length) out.search_queries = fallback.search_queries;
+    if (!out.brand_domains.length) out.brand_domains = fallback.brand_domains;
+    cachePut_(cacheKey, out);
+    return out;
+  } catch (e) {
+    return fallbackProductIdentity_(product, 'AI 身份解析失败: ' + String(e && e.message ? e.message : e));
+  }
+}
+
+function identityOfficialNames_(identity, product) {
+  var out = [];
+  [identity.official_names, identity.aliases, identity.model_codes,
+    [product.canonical_name || '']].forEach(function(arr) {
+    (arr || []).forEach(function(s) {
+      var v = String(s || '').trim();
+      if (v.length >= 3) out.push(v);
+    });
+  });
+  var seen = {};
+  return out.filter(function(s) {
+    var k = normalizeAlias(s);
+    if (!k || seen[k]) return false;
+    seen[k] = 1;
+    return true;
+  }).slice(0, 12);
+}
+
+function identityQueries_(identity, product) {
+  var brand = String(product.brand || '');
+  var name = String(product.canonical_name || '');
+  var official = (identity.official_names || [])[0] || name;
+  var model = (identity.model_codes || [])[0] || '';
+  var out = (identity.search_queries || []).slice();
+  out.push(brand + ' ' + name);
+  out.push(brand + ' ' + official);
+  if (model) out.push(brand + ' ' + model);
+  var seen = {};
+  return out.map(function(s) {
+    return String(s || '').replace(/["'\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }).filter(function(s) {
+    if (s.length < 3) return false;
+    var k = normalizeAlias(s);
+    if (seen[k]) return false;
+    seen[k] = 1;
+    return true;
+  }).slice(0, 5);
+}
+
+function identityDomains_(identity, product) {
+  var out = (identity.brand_domains || []).slice();
+  if (typeof detectBrandDomains_ === 'function') {
+    detectBrandDomains_(String(product.brand || '') + ' ' + String(product.canonical_name || ''))
+      .forEach(function(d) { out.push(d); });
+  }
+  var seen = {};
+  return out.map(function(d) { return String(d || '').toLowerCase().replace(/^www\./, '').trim(); })
+    .filter(function(d) {
+      if (!/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(d)) return false;
+      if (seen[d]) return false;
+      seen[d] = 1;
+      return true;
+    }).slice(0, 6);
+}
+
+function isCandidateUrlAllowed_(url, domains) {
+  if (isAllowedOfficialProductUrl_(url)) return true;
+  var m = String(url || '').match(/^https?:\/\/([^\/:?#]+)/i);
+  if (!m) return false;
+  var host = m[1].toLowerCase().replace(/^www\./, '');
+  for (var i = 0; i < URL_NON_OFFICIAL_HOSTS_.length; i++) {
+    var bad = URL_NON_OFFICIAL_HOSTS_[i];
+    if (host === bad || host.slice(-(bad.length + 1)) === '.' + bad) return false;
+  }
+  for (var j = 0; j < (domains || []).length; j++) {
+    var d = String(domains[j] || '').toLowerCase();
+    if (host === d || host.slice(-(d.length + 1)) === '.' + d) return true;
+  }
+  return false;
+}
+
+function saveProductIdentity_(product, identity) {
+  try {
+    var official = (identity.official_names || [])[0] || '';
+    updateProductUrlFields_(product.product_id, {
+      official_name: official,
+      identity_source: identity.source || '',
+      identity_checked_at: new Date().toISOString()
+    });
+    var aliases = (identity.official_names || []).concat(
+      identity.aliases || [], identity.model_codes || []);
+    aliases.forEach(function(a) {
+      var s = String(a || '').trim();
+      if (s.length >= 3 && s.length <= 80) addAlias_(s, product.product_id);
+    });
+  } catch (e) {
+    Logger.log('回写产品官方名失败：' + String(e && e.message ? e.message : e));
+  }
+}
+
 function isProductUrlVerified_(product) {
   return !!product
     && String(product.official_url || '').trim() !== ''
@@ -93,6 +299,28 @@ function productPageMatches_(canonicalName, brand, strongText, fullText) {
   return false;
 }
 
+function collectProductJsonLd_(node, identifiers, texts) {
+  if (!node || identifiers.length >= 40) return;
+  if (Array.isArray(node)) {
+    node.forEach(function(x) { collectProductJsonLd_(x, identifiers, texts); });
+    return;
+  }
+  if (typeof node !== 'object') return;
+  var keys = ['name', 'sku', 'mpn', 'model', 'productID', 'identifier', 'gtin13', 'gtin'];
+  keys.forEach(function(k) {
+    var v = node[k];
+    if (typeof v !== 'string' && typeof v !== 'number') return;
+    var s = String(v).trim();
+    if (!s || s.length > 200) return;
+    identifiers.push(s);
+    if (['name', 'sku', 'mpn', 'model', 'productID'].indexOf(k) >= 0) texts.push(s);
+  });
+  Object.keys(node).forEach(function(k) {
+    if (k.charAt(0) === '@' && k !== '@graph') return;
+    if (node[k] && typeof node[k] === 'object') collectProductJsonLd_(node[k], identifiers, texts);
+  });
+}
+
 function extractPageIdentity_(html) {
   var src = String(html || '');
   var titleMatch = src.match(/<title[^>]*>([\s\S]{0,500}?)<\/title>/i);
@@ -112,6 +340,26 @@ function extractPageIdentity_(html) {
     }
   }
 
+  var canonical = '';
+  var linkRe = /<link\b[^>]*>/gi, lm;
+  while ((lm = linkRe.exec(src)) !== null) {
+    if (!/rel\s*=\s*["']canonical["']/i.test(lm[0])) continue;
+    var href = lm[0].match(/href\s*=\s*["']([^"']+)["']/i);
+    if (href) canonical = href[1];
+    break;
+  }
+
+  var identifiers = [], jsonldTexts = [];
+  var ldRe = /<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi, ldm;
+  while ((ldm = ldRe.exec(src)) !== null && identifiers.length < 40) {
+    var raw = String(ldm[1] || '').replace(/<!--[\s\S]*?-->/g, '').trim();
+    try { collectProductJsonLd_(JSON.parse(raw), identifiers, jsonldTexts); }
+    catch (e1) {
+      try { collectProductJsonLd_(JSON.parse(raw.replace(/[\r\n\t]+/g, ' ')), identifiers, jsonldTexts); }
+      catch (e2) {}
+    }
+  }
+
   var bodyHtml = src
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
@@ -119,9 +367,40 @@ function extractPageIdentity_(html) {
 
   return {
     title: decodeHtmlText_(title),
-    strongText: decodeHtmlText_([title].concat(h1s, metas).join(' | ')),
-    fullText: decodeHtmlText_(bodyHtml).slice(0, 120000)
+    strongText: decodeHtmlText_([title].concat(h1s, metas, jsonldTexts).join(' | ')),
+    fullText: decodeHtmlText_(bodyHtml).slice(0, 120000),
+    canonical: canonical,
+    identifiers: identifiers.slice(0, 40),
+    jsonldText: jsonldTexts.join(' | ')
   };
+}
+
+function productPageMatchesMulti_(product, page, officialNames) {
+  var strong = String(page.strongText || '');
+  var body = String(page.fullText || '');
+  if (productPageMatches_(product.canonical_name, product.brand, strong, body)) return true;
+  var names = officialNames || [];
+  for (var i = 0; i < names.length; i++) {
+    if (productPageMatches_(names[i], product.brand, strong, body)) return true;
+  }
+  var ids = (page.identifiers || []).map(function(s) { return normalizeAlias(s); }).filter(Boolean);
+  var tokens = [];
+  names.concat([product.canonical_name || '']).forEach(function(n) {
+    var stripped = stripBrandFromProductName_(n, product.brand);
+    productModelTokens_(stripped).forEach(function(t) {
+      if (t.length >= 4) tokens.push(normalizeAlias(t));
+    });
+  });
+  var seen = {};
+  for (var j = 0; j < tokens.length; j++) {
+    var t = tokens[j];
+    if (!t || t.length < 4 || seen[t]) continue;
+    seen[t] = 1;
+    for (var k = 0; k < ids.length; k++) {
+      if (ids[k] === t || ids[k].indexOf(t) >= 0) return true;
+    }
+  }
+  return false;
 }
 
 function fetchOfficialProductPage_(url) {
@@ -138,12 +417,61 @@ function fetchOfficialProductPage_(url) {
   return { code: code, html: html };
 }
 
+function fetchOfficialProductPages_(urls, deadlineMs) {
+  var out = {};
+  var list = [];
+  var seen = {};
+  (urls || []).forEach(function(u) {
+    var url = String(u || '').trim();
+    if (!url || seen[url]) return;
+    seen[url] = 1;
+    list.push(url);
+  });
+  var batchSize = Math.max(1, Number(CONFIG.PRODUCT_URL_FETCH_BATCH_SIZE) || 8);
+  for (var start = 0; start < list.length; start += batchSize) {
+    var batch = list.slice(start, start + batchSize);
+    if (deadlineMs && Date.now() + 15000 > Number(deadlineMs)) {
+      batch.forEach(function(url) { out[url] = { code: 0, html: '', error: 'budget' }; });
+      continue;
+    }
+    try {
+      var requests = batch.map(function(url) {
+        return {
+          url: url,
+          muteHttpExceptions: true,
+          followRedirects: true,
+          headers: {
+            'User-Agent': PRODUCT_URL_FETCH_UA_,
+            'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8'
+          }
+        };
+      });
+      var responses = UrlFetchApp.fetchAll(requests);
+      responses.forEach(function(response, i) {
+        var code = response.getResponseCode();
+        out[batch[i]] = {
+          code: code,
+          html: (code >= 200 && code < 300)
+            ? String(response.getContentText() || '').slice(0, 300000) : ''
+        };
+      });
+    } catch (e) {
+      batch.forEach(function(url) {
+        try { out[url] = fetchOfficialProductPage_(url); }
+        catch (e2) { out[url] = { code: 0, html: '', error: String(e2).slice(0, 120) }; }
+      });
+    }
+  }
+  return out;
+}
+
 /**
  * UrlFetch 抓不到有效内容时的 Crawl4AI 兜底。
  * 只负责取回渲染后的文本，是否匹配仍由 productPageMatches_ 确定性判断。
  * 返回 null 表示未取得可匹配内容；失败原因写入 noteOut。
  */
-function tryRenderedMatch_(url, product, reason, noteOut, deadlineMs) {
+function tryRenderedMatch_(url, product, reason, noteOut, deadlineMs, allowRender) {
+  if (allowRender === false) return { status: 'disabled' };
   if (!crawl4aiCanRender_()) return { status: 'disabled' };
   if (deadlineMs && Date.now() + 45000 > Number(deadlineMs)) {
     noteOut.push('渲染跳过(剩余时间不足): ' + url.slice(0, 140));
@@ -164,14 +492,17 @@ function tryRenderedMatch_(url, product, reason, noteOut, deadlineMs) {
   return { status: 'matched', code: 200, title: rendered.title, via: 'crawl4ai' };
 }
 
-function inspectOfficialProductUrl_(url, product, deadlineMs) {
+function inspectOfficialProductUrl_(url, product, deadlineMs, prefetched, officialNames, allowRender) {
   var renderNotes = [];
   var page;
   try {
-    page = fetchOfficialProductPage_(url);
+    page = prefetched || fetchOfficialProductPage_(url);
+    if (prefetched && prefetched.error === 'budget') {
+      return { status: 'fetch_error', code: 0, message: '预算不足', render_notes: renderNotes };
+    }
   } catch (e) {
     // 网络层失败：可能是反爬或需要 JS 渲染，交给 Crawl4AI 再试一次。
-    var renderedOnError = tryRenderedMatch_(url, product, '网络错误', renderNotes, deadlineMs);
+    var renderedOnError = tryRenderedMatch_(url, product, '网络错误', renderNotes, deadlineMs, allowRender);
     if (renderedOnError.status === 'matched') return renderedOnError;
     return { status: 'fetch_error', code: 0, message: String(e).slice(0, 200), render_notes: renderNotes };
   }
@@ -179,11 +510,11 @@ function inspectOfficialProductUrl_(url, product, deadlineMs) {
   var code = page.code;
   if (code >= 200 && code < 300) {
     var identity = extractPageIdentity_(page.html);
-    if (productPageMatches_(product.canonical_name, product.brand, identity.strongText, identity.fullText)) {
+    if (productPageMatchesMulti_(product, identity, officialNames)) {
       return { status: 'matched', code: code, title: identity.title, via: 'urlfetch' };
     }
     // 2xx 但不含型号：多半是 JS 渲染的空壳页（SPA 官网），用 Crawl4AI 渲染后再判。
-    var rendered = tryRenderedMatch_(url, product, '空壳页', renderNotes, deadlineMs);
+    var rendered = tryRenderedMatch_(url, product, '空壳页', renderNotes, deadlineMs, allowRender);
     if (rendered.status === 'matched') return rendered;
     if (rendered.status === 'error') {
       // 页面确实是空壳，但渲染器没成功：无法下结论，保留待重试，不要隔离。
@@ -196,7 +527,7 @@ function inspectOfficialProductUrl_(url, product, deadlineMs) {
     return { status: 'invalid_http', code: code, message: 'HTTP ' + code };
   }
   // 403/405/429/5xx：反爬或暂时失败，Crawl4AI 有独立出口，值得再试一次。
-  var renderedBlocked = tryRenderedMatch_(url, product, 'HTTP ' + code, renderNotes, deadlineMs);
+  var renderedBlocked = tryRenderedMatch_(url, product, 'HTTP ' + code, renderNotes, deadlineMs, allowRender);
   if (renderedBlocked.status === 'matched') return renderedBlocked;
   return { status: 'fetch_error', code: code, message: 'HTTP ' + code, render_notes: renderNotes };
 }
@@ -208,79 +539,131 @@ function inspectOfficialProductUrl_(url, product, deadlineMs) {
 function verifyProductUrl_(product, deadlineMs) {
   product = product || {};
   var deadline = Number(deadlineMs) || 0;
-  function remainingMs() {
-    return deadline > 0 ? deadline - Date.now() : Infinity;
-  }
-  function outOfBudget() {
-    return remainingMs() <= 20000;
+  function outOfBudget(minMs) {
+    return deadline > 0 && Date.now() + (minMs || 15000) > deadline;
   }
   var checkedAt = new Date().toISOString();
   var brand = String(product.brand || '');
   var name = String(product.canonical_name || '');
   var existing = String(product.official_url || '').trim();
-  var notes = [];
-  var tested = {};
+  var identity = resolveProductIdentity_(product, deadline);
+  var officialNames = identityOfficialNames_(identity, product);
+  var queries = identityQueries_(identity, product);
+  var domains = identityDomains_(identity, product);
+  var notes = (identity.notes || []).slice(0, 2);
+  if (identity.source === 'ai') {
+    notes.push('AI 官方名候选：' + (identity.official_names || []).slice(0, 3).join(' / '));
+  }
   var hardInvalid = false;
   var transient = false;
+  var candidates = [], seen = {};
 
-  function tryUrl(url) {
-    url = String(url || '').trim();
-    if (!url || tested[url]) return null;
-    tested[url] = 1;
-    if (!isAllowedOfficialProductUrl_(url)) {
-      notes.push('非品牌官网域名: ' + url.slice(0, 160));
+  function addCandidate(url) {
+    var u = String(url || '').trim();
+    if (!u || seen[u]) return;
+    if (!isCandidateUrlAllowed_(u, domains)) {
+      notes.push('非品牌官网域名: ' + u.slice(0, 160));
       hardInvalid = true;
-      return null;
+      return;
     }
-    var result = inspectOfficialProductUrl_(url, product, deadline);
+    seen[u] = 1;
+    candidates.push(u);
+  }
+
+  function scoreCandidate(url, via) {
+    var path = String(url || '').split('://').pop().split('/').slice(1).join('/').toLowerCase();
+    var n = 0;
+    if (/product|products|shop\/p\/|\/p\/|gaming|mouse|keyboard|headset|spec/.test(path)) n += 3;
+    if (/support|search|category|accessories/.test(path)) n -= 2;
+    if (domains.some(function(d) { return String(url).toLowerCase().indexOf('://' + d) >= 0
+      || String(url).toLowerCase().indexOf('://www.' + d) >= 0; })) n += 2;
+    if (via === 'crawl4ai') n += 1;
+    return n;
+  }
+
+  addCandidate(existing);
+  if (outOfBudget(30000)) {
+    transient = true;
+    notes.push('核验时间不足，已跳过官网搜索');
+  } else {
+    queries.forEach(function(q) {
+      try {
+        searchOfficialProductCandidates_(q, deadline, { queries: [q], domains: domains })
+          .forEach(addCandidate);
+      } catch (e) {
+        transient = true;
+        notes.push('官网搜索失败: ' + String(e).slice(0, 120));
+      }
+    });
+  }
+  candidates = candidates.slice(0, 8);
+  if (!candidates.length) {
+    return {
+      status: transient ? 'check_failed' : 'not_found',
+      url: '', checked_at: checkedAt, candidates: [],
+      notes: notes.join('；').slice(0, 900)
+    };
+  }
+
+  var pages = fetchOfficialProductPages_(candidates, deadline);
+  var matches = [], renderQueue = [];
+  candidates.forEach(function(url) {
+    var page = pages[url] || { code: 0, html: '' };
+    var result = inspectOfficialProductUrl_(url, product, deadline, page, officialNames, false);
     if (result.status === 'matched') {
-      return {
-        status: 'verified', url: url, checked_at: checkedAt,
-        via: result.via || 'urlfetch',
-        notes: (result.via === 'crawl4ai'
-          ? 'Crawl4AI 渲染页面核验通过 | 页面标题: '
-          : '页面标题: ') + String(result.title || '').slice(0, 300)
-      };
-    }
-    if (result.status === 'mismatch') {
+      matches.push({
+        url: url, title: String(result.title || '').slice(0, 200),
+        via: result.via || 'urlfetch', score: scoreCandidate(url, result.via)
+      });
+    } else if (result.status === 'mismatch') {
       hardInvalid = true;
       notes.push('页面与产品不匹配: ' + url.slice(0, 160) + ' | ' + String(result.title || '').slice(0, 100));
-      (result.render_notes || []).forEach(function(n) { notes.push(n); });
+      renderQueue.push({ url: url, score: scoreCandidate(url, '') });
     } else if (result.status === 'invalid_http') {
       hardInvalid = true;
       notes.push('页面已失效(' + result.code + '): ' + url.slice(0, 160));
     } else {
       transient = true;
       notes.push('暂时无法抓取(' + (result.code || 'net') + '): ' + url.slice(0, 160));
-      (result.render_notes || []).forEach(function(n) { notes.push(n); });
+      renderQueue.push({ url: url, score: scoreCandidate(url, '') });
     }
-    return null;
+  });
+
+  renderQueue.sort(function(a, b) { return b.score - a.score; });
+  renderQueue.slice(0, 2).forEach(function(item) {
+    if (outOfBudget(45000)) return;
+    var result = inspectOfficialProductUrl_(item.url, product, deadline, null, officialNames, true);
+    if (result.status === 'matched') {
+      matches.push({
+        url: item.url, title: String(result.title || '').slice(0, 200),
+        via: result.via || 'crawl4ai', score: scoreCandidate(item.url, result.via) + 1
+      });
+    }
+  });
+
+  matches.sort(function(a, b) { return b.score - a.score; });
+  if (matches.length === 1) {
+    var hit = matches[0];
+    saveProductIdentity_(product, identity);
+    return {
+      status: 'verified', url: hit.url, checked_at: checkedAt,
+      via: hit.via, candidates: matches.slice(0, 5),
+      notes: notes.concat(['页面标题: ' + hit.title]).join('；').slice(0, 900)
+    };
   }
-
-  var hit = tryUrl(existing);
-  if (hit) return hit;
-
-  var candidates = [];
-  if (outOfBudget()) {
-    transient = true;
-    notes.push('核验时间不足，已跳过官网搜索');
-  } else {
+  if (matches.length > 1) {
+    var candidateUrls = matches.slice(0, 5).map(function(m) { return m.url; });
     try {
-      candidates = searchOfficialProductCandidates_(brand + ' ' + name, deadline);
-    } catch (e) {
-      transient = true;
-      notes.push('官网搜索失败: ' + String(e).slice(0, 120));
-    }
-  }
-
-  for (var i = 0; i < candidates.length && i < 8; i++) {
-    if (outOfBudget()) {
-      transient = true;
-      notes.push('核验时间不足，剩余候选未检查');
-      break;
-    }
-    hit = tryUrl(candidates[i]);
-    if (hit) return hit;
+      enqueuePending_('url_ambiguous', {
+        product_id: product.product_id, canonical_name: name, brand: brand,
+        official_name: (identity.official_names || [])[0] || '',
+        candidates: candidateUrls
+      }, '多个官网页面匹配，需人工确认');
+    } catch (e) { notes.push('人工复核入队失败: ' + String(e).slice(0, 120)); }
+    return {
+      status: 'ambiguous', url: '', checked_at: checkedAt, candidates: candidateUrls,
+      notes: notes.concat(['多个候选匹配: ' + candidateUrls.join(' | ')]).join('；').slice(0, 900)
+    };
   }
 
   var status = hardInvalid ? 'mismatch' : (transient ? 'check_failed' : 'not_found');
@@ -288,6 +671,7 @@ function verifyProductUrl_(product, deadlineMs) {
     status: status,
     url: status === 'check_failed' ? existing : '',
     checked_at: checkedAt,
+    candidates: [],
     notes: notes.join('；').slice(0, 900)
   };
 }
@@ -480,6 +864,13 @@ function verifyProductUrls_(options) {
           }
         }
       } catch(e2) {}
+    } else if (outcome.status === 'ambiguous') {
+      updateProductUrlFields_(p.product_id, {
+        official_url: '',
+        official_url_status: 'ambiguous',
+        official_url_checked_at: outcome.checked_at,
+        official_url_notes: outcome.notes || ''
+      });
     } else if (outcome.status === 'check_failed') {
       updateProductUrlFields_(p.product_id, {
         official_url: String(p.official_url || '').trim(),

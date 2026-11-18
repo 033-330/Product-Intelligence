@@ -102,76 +102,113 @@ function guessProductUrlCandidates_(productName) {
   return out;
 }
 
-function searchOfficialProductCandidates_(productName, deadlineMs) {
+function extractOfficialUrlsFromSearchHtml_(html, domains) {
+  var found = [], seen = {};
+  var re = /href=["']([^"']+)["']/gi, m;
+  while ((m = re.exec(html)) !== null && found.length < 60) {
+    var href = m[1].replace(/&amp;/g, '&');
+    var target = '';
+    if (href.indexOf('/url?') === 0) {
+      var qm = href.match(/[?&](?:q|url)=([^&]+)/);
+      if (qm) { try { target = decodeURIComponent(qm[1]); } catch (ex) { target = qm[1]; } }
+    } else if (/duckduckgo\.com\/l\//i.test(href)) {
+      var dm = href.match(/[?&]uddg=([^&]+)/);
+      if (dm) { try { target = decodeURIComponent(dm[1]); } catch (ex3) { target = dm[1]; } }
+    } else if (/^https?:\/\//i.test(href)) {
+      target = href;
+      if (/^https?:\/\/www\.bing\.com\/ck\/a\?/i.test(target)) {
+        var um = target.match(/[?&]u=a1([^&]+)/i);
+        if (um) {
+          try { target = Utilities.newBlob(Utilities.base64DecodeWebSafe(um[1].replace(/^a1/, ''))).getDataAsString(); }
+          catch (ex2) {}
+        }
+      }
+    } else if (href.indexOf('//') === 0) {
+      target = 'https:' + href;
+    }
+    if (!target || !isCandidateUrlAllowed_(target, domains)) continue;
+    target = target.split('#')[0];
+    if (/[?&](?:gclid|ved|usg|utm_)/i.test(target)) target = target.split('?')[0];
+    if (!seen[target]) { seen[target] = true; found.push(target); }
+  }
+  return found;
+}
+
+function searchOfficialProductCandidates_(productName, deadlineMs, options) {
+  options = options || {};
   var q = String(productName || '').trim();
-  if (!q) return [];
+  var queries = (options.queries && options.queries.length) ? options.queries : (q ? [q] : []);
+  if (!queries.length) return [];
   var deadline = Number(deadlineMs) || 0;
   function outOfBudget(minMs) {
     return deadline > 0 && Date.now() + (minMs || 30000) > deadline;
   }
 
-  // 1) slug 猜测候选排最前：零搜索成本，verifyProductUrl_ 会逐个 fetch 验证存在性。
-  var slugCandidates = guessProductUrlCandidates_(q);
+  var slugCandidates = /logitech/i.test(queries.join(' ')) ? guessProductUrlCandidates_(q) : [];
   var all = [], seenAll = {};
   slugCandidates.forEach(function(u) { if (!seenAll[u]) { seenAll[u] = 1; all.push(u); } });
 
-  // 2) 搜索引擎：精确产品名 + 限定品牌主域名 + buy 引导产品页，避免分类页/旧款。
-  var brandDomains = detectBrandDomains_(q);
-  var domainQuery = brandDomains.map(function(d){return 'site:'+d;}).join(' OR ');
-  var query = '"' + q + '" (' + domainQuery + ') buy';
+  var domains = (options.domains && options.domains.length) ? options.domains : detectBrandDomains_(q);
   var engines = [
-    'https://www.google.com/search?num=10&q=' + encodeURIComponent(query),
-    'https://www.bing.com/search?count=10&q=' + encodeURIComponent(query),
-    'https://www.html.duckduckgo.com/html/?q=' + encodeURIComponent(query)
+    'https://www.google.com/search?num=10&q=',
+    'https://www.bing.com/search?count=10&q=',
+    'https://www.html.duckduckgo.com/html/?q='
   ];
-  for (var e=0;e<engines.length;e++) {
-    if (outOfBudget(30000)) break;
-    try {
-      var response = UrlFetchApp.fetch(engines[e], {muteHttpExceptions:true, followRedirects:true,
-        headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36'}});
-      if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) continue;
-      var html = response.getContentText().slice(0, 500000);
-      var found = [], seen = {};
-      var re = /href=["']([^"']+)["']/gi, m;
-      while ((m = re.exec(html)) !== null && found.length < 60) {
-        var href = m[1].replace(/&amp;/g,'&');
-        var target = '';
-        if (href.indexOf('/url?') === 0) {
-          var qm = href.match(/[?&](?:q|url)=([^&]+)/);
-          if (qm) { try { target = decodeURIComponent(qm[1]); } catch(ex) { target = qm[1]; } }
-        } else if (/duckduckgo\.com\/l\//i.test(href)) {
-          var dm = href.match(/[?&]uddg=([^&]+)/);
-          if (dm) { try { target = decodeURIComponent(dm[1]); } catch(ex3) { target = dm[1]; } }
-        } else if (/^https?:\/\//i.test(href)) {
-          target = href;
-          if (/^https?:\/\/www\.bing\.com\/ck\/a\?/i.test(target)) {
-            var um = target.match(/[?&]u=a1([^&]+)/i);
-            if (um) { try { target = Utilities.newBlob(Utilities.base64DecodeWebSafe(um[1].replace(/^a1/,''))).getDataAsString(); } catch(ex2) {} }
-          }
-        } else if (href.indexOf('//') === 0) {
-          target = 'https:' + href;
+  var domainQuery = domains.map(function(d) { return 'site:' + d; }).join(' OR ');
+  var requests = [], searchQueries = [];
+  queries.slice(0, 5).forEach(function(raw) {
+    var text = String(raw || '').replace(/["'\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (text.length < 3) return;
+    var query = '"' + text + '"' + (domainQuery ? ' (' + domainQuery + ')' : '') + ' official';
+    searchQueries.push({ text: text, query: query });
+    engines.forEach(function(base) {
+      requests.push({
+        url: base + encodeURIComponent(query),
+        muteHttpExceptions: true,
+        followRedirects: true,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36'
         }
-        if (!target || !isAllowedOfficialProductUrl_(target)) continue;
-        target = target.split('#')[0];
-        if (/[?&](?:gclid|ved|usg|utm_)/i.test(target)) target = target.split('?')[0];
-        if (!seen[target]) { seen[target] = true; found.push(target); }
-      }
-      found.forEach(function(u) {
-        if (!seenAll[u]) { seenAll[u] = true; all.push(u); }
       });
-    } catch(ignore) { /* try next public search engine */ }
+    });
+  });
+
+  function addFound(html) {
+    extractOfficialUrlsFromSearchHtml_(String(html || '').slice(0, 500000), domains).forEach(function(u) {
+      if (!seenAll[u]) { seenAll[u] = 1; all.push(u); }
+    });
   }
-  // 三个搜索引擎都拿不到可用链接时（常见于 GAS 出口被拦或结果页是 JS 渲染），用 Crawl4AI 渲染搜索结果页兜底。
-  if (all.length <= slugCandidates.length && !outOfBudget(60000)
-      && typeof crawl4aiCanRender_ === 'function' && crawl4aiCanRender_()) {
+
+  if (!outOfBudget(30000) && requests.length) {
     try {
-      crawl4aiDiscoverOfficialUrls_(query, deadline).forEach(function(u) {
-        if (!seenAll[u]) { seenAll[u] = true; all.push(u); }
+      var responses = UrlFetchApp.fetchAll(requests);
+      responses.forEach(function(response) {
+        if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) return;
+        addFound(response.getContentText());
+      });
+    } catch (e) {
+      requests.forEach(function(req) {
+        if (outOfBudget(30000)) return;
+        try {
+          var response = UrlFetchApp.fetch(req.url, {
+            muteHttpExceptions: true, followRedirects: true, headers: req.headers
+          });
+          if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) return;
+          addFound(response.getContentText());
+        } catch (ignore) {}
+      });
+    }
+  }
+
+  if (all.length <= slugCandidates.length && !outOfBudget(60000)
+      && typeof crawl4aiCanRender_ === 'function' && crawl4aiCanRender_() && searchQueries.length) {
+    try {
+      crawl4aiDiscoverOfficialUrls_(searchQueries[0].query, deadline).forEach(function(u) {
+        if (!seenAll[u]) { seenAll[u] = 1; all.push(u); }
       });
     } catch (e) { Logger.log('Crawl4AI 搜索结果兜底失败：' + String(e).slice(0, 200)); }
   }
 
-  // 搜索结果按产品页特征排序；slug 候选已在最前，不参与重排。
   var slugSet = {};
   slugCandidates.forEach(function(u) { slugSet[u] = 1; });
   var slugPart = all.filter(function(u) { return slugSet[u]; });
