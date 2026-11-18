@@ -172,7 +172,7 @@ function smoke_urlIdentityTest(productId, options) {
   }
 
   var started = Date.now();
-  var deadline = started + Math.max(30000, Math.min(Number(options.timeoutMs) || 120000, 150000));
+  var deadline = started + Math.max(30000, Math.min(Number(options.timeoutMs) || 150000, 150000));
   var rows = [];
   function add(stage, status, detail) {
     var line = [new Date().toISOString(), String(product.product_id), stage,
@@ -220,7 +220,7 @@ function smoke_urlIdentityTest(productId, options) {
     }
   });
 
-  candidates = candidates.slice(0, 8);
+  candidates = candidates.slice(0, 16);
   add('candidates', 'info', candidates.length + ' 条');
 
   if (candidates.length) {

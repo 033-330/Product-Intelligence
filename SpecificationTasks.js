@@ -102,6 +102,20 @@ function guessProductUrlCandidates_(productName) {
   return out;
 }
 
+function isLikelyProductPath_(url) {
+  var raw = String(url || '');
+  if (!/^https?:\/\//i.test(raw)) return false;
+  var m = raw.match(/^https?:\/\/[^/]+(\/[^?#]*)?/i);
+  var path = m && m[1] ? m[1].toLowerCase() : '';
+  if (!path || path === '/') return false;
+  if (/\/(?:search|s|shop\/c|software|support|pages|blog|news|community|forums?)(?:\/|$)/.test(path)) return false;
+  if (/[?&](?:q|query|search)=/i.test(raw)) return false;
+  var segs = path.split('/').filter(Boolean);
+  var last = (segs[segs.length - 1] || '').replace(/\.html?$/, '');
+  if (/(?:^|[-_])(official|specs?|review|buy|price|deals?|coupon|best|top|vs|compare|wiki|amazon|ebay|reddit|help|faq)(?:[-_]|$)/.test(last)) return false;
+  return true;
+}
+
 function extractOfficialUrlsFromSearchHtml_(html, domains) {
   var found = [], seen = {};
   var re = /href=["']([^"']+)["']/gi, m;
@@ -127,6 +141,7 @@ function extractOfficialUrlsFromSearchHtml_(html, domains) {
       target = 'https:' + href;
     }
     if (!target || !isCandidateUrlAllowed_(target, domains)) continue;
+    if (!isLikelyProductPath_(target)) continue;
     target = target.split('#')[0];
     if (/[?&](?:gclid|ved|usg|utm_)/i.test(target)) target = target.split('?')[0];
     if (!seen[target]) { seen[target] = true; found.push(target); }
@@ -159,7 +174,7 @@ function searchOfficialProductCandidates_(productName, deadlineMs, options) {
   queries.slice(0, 5).forEach(function(raw) {
     var text = String(raw || '').replace(/["'\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (text.length < 3) return;
-    var query = '"' + text + '"' + (domainQuery ? ' (' + domainQuery + ')' : '') + ' official';
+    var query = '"' + text + '"' + (domainQuery ? ' (' + domainQuery + ')' : '') + ' -buy -price -review';
     searchQueries.push({ text: text, query: query });
     engines.forEach(function(base) {
       requests.push({
@@ -216,13 +231,15 @@ function searchOfficialProductCandidates_(productName, deadlineMs, options) {
   searchPart.sort(function(a,b){
     function score(u){var path=(u.split('/').slice(3).join('/')||'').toLowerCase(); var n=0;
       if (/product|products|gaming|mouse|keyboard|headset|spec|p\//.test(path)) n+=3;
+      if (/\/products\//.test('/' + path)) n+=4;
+      if (/\/shop\/p\//.test('/' + path) && /(?:official|specs?|mouse|review|price|buy)$/.test(path.replace(/\.html?$/, '').split('/').pop() || '')) n-=6;
       if (/support|search|category|accessories/.test(path)) n-=2;
       if (path) n+=1;
       return n;}
     return score(b)-score(a);
   });
   var productLike = searchPart.filter(function(u){ return /^https:\/\//i.test(u) && u.split('/').length > 4; });
-  return slugPart.concat(productLike.length ? productLike : searchPart).slice(0, 12);
+  return slugPart.concat(productLike.length ? productLike : searchPart).slice(0, 20);
 }
 
 

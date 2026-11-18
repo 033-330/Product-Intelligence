@@ -97,11 +97,11 @@ function resolveProductIdentity_(product, deadlineMs) {
   if (cached && cached.search_queries && cached.search_queries.length) return cached;
 
   var remaining = Number(deadlineMs) ? Number(deadlineMs) - Date.now() : 60000;
-  if (remaining < 45000) return fallbackProductIdentity_(product, '时间不足，跳过 AI 身份解析');
+  if (remaining < 90000) return fallbackProductIdentity_(product, '时间不足，跳过 AI 身份解析');
 
   var timeoutMs = Math.max(5000, Math.min(
     Number(CONFIG.PRODUCT_IDENTITY_TIMEOUT_MS) || 20000,
-    remaining - 40000
+    remaining - 70000
   ));
   try {
     var raw = callAI(buildIdentityPrompt_(product), PRODUCT_IDENTITY_SCHEMA, {
@@ -153,10 +153,16 @@ function identityQueries_(identity, product) {
   var name = String(product.canonical_name || '');
   var official = (identity.official_names || [])[0] || name;
   var model = (identity.model_codes || [])[0] || '';
-  var out = (identity.search_queries || []).slice();
-  out.push(brand + ' ' + name);
-  out.push(brand + ' ' + official);
-  if (model) out.push(brand + ' ' + model);
+  function withBrand(s) {
+    var v = String(s || '').replace(/^https?:\/\//i, '').trim();
+    if (!v) return '';
+    if (!brand) return v;
+    return v.toLowerCase().indexOf(brand.toLowerCase()) === 0 ? v : brand + ' ' + v;
+  }
+  var out = (identity.search_queries || []).map(withBrand);
+  out.push(withBrand(name));
+  out.push(withBrand(official));
+  if (model) out.push(withBrand(model));
   var seen = {};
   return out.map(function(s) {
     return String(s || '').replace(/["'\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -574,6 +580,8 @@ function verifyProductUrl_(product, deadlineMs) {
     var path = String(url || '').split('://').pop().split('/').slice(1).join('/').toLowerCase();
     var n = 0;
     if (/product|products|shop\/p\/|\/p\/|gaming|mouse|keyboard|headset|spec/.test(path)) n += 3;
+    if (/\/products\//.test('/' + path)) n += 4;
+    if (/\/shop\/p\//.test('/' + path) && /(?:official|specs?|mouse|review|price|buy)$/.test(path.replace(/\.html?$/, '').split('/').pop() || '')) n -= 6;
     if (/support|search|category|accessories/.test(path)) n -= 2;
     if (domains.some(function(d) { return String(url).toLowerCase().indexOf('://' + d) >= 0
       || String(url).toLowerCase().indexOf('://www.' + d) >= 0; })) n += 2;
@@ -596,7 +604,7 @@ function verifyProductUrl_(product, deadlineMs) {
       }
     });
   }
-  candidates = candidates.slice(0, 8);
+  candidates = candidates.slice(0, 16);
   if (!candidates.length) {
     return {
       status: transient ? 'check_failed' : 'not_found',
