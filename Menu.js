@@ -30,6 +30,7 @@ function addSmokeMenu() {
       .addItem('4.6) 端到端：文本→分块→实体→URL→规格', 'smoke_fullPipelineFromInputSheet')
       .addItem('4.7) URL 身份解析测试（单产品）', 'smoke_urlIdentityTest')
       .addItem('4.8) URL 身份解析自测（纯函数）', 'smoke_urlIdentitySelfTest')
+      .addItem('4.9) 创建3个URL测试产品', 'smoke_createUrlIdentityTestProducts')
       .addItem('5) 验证隔离产品不入队规格', 'smoke_quarantineBlocksTask')
       .addItem('6) 查看隔离/待复核状态', 'smoke_reportStatus')
       .addItem('7) 安装/检查 URL 核验触发器（6小时）', 'smoke_ensureUrlVerifyTrigger')

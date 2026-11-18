@@ -1,3 +1,44 @@
+function smoke_createUrlIdentityTestProducts() {
+  if (typeof setupSheets === 'function') setupSheets();
+  var issueNo = 'URLID-TEST';
+  var issueDate = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  ensureIssue_(issueNo, issueDate, 'urltest://identity');
+
+  var fixtures = [
+    { name: 'GPW5 Ultra', brand: 'Logitech', category: 'mouse' },
+    { name: 'G Pro X Superlight 2 Ultra', brand: 'Logitech', category: 'mouse' },
+    { name: 'G PRO X3 SUPER STRIKE', brand: 'Logitech', category: 'mouse' }
+  ];
+  var products = readTable('Products');
+  var aliases = readTable('ProductAliases');
+  var out = [];
+  fixtures.forEach(function(f) {
+    var key = normalizeAlias(f.name);
+    var existing = products.filter(function(p) {
+      return normalizeAlias(p.canonical_name || '') === key;
+    })[0] || aliases.filter(function(a) {
+      return normalizeAlias(a.normalized || a.alias || '') === key;
+    })[0];
+    if (existing) {
+      out.push({ name: f.name, product_id: String(existing.product_id || ''), created: false });
+      return;
+    }
+    var id = createProduct_(f.name, f.brand, f.category, issueNo, {
+      nameSource: 'url_identity_test',
+      nameAsWritten: f.name
+    });
+    out.push({ name: f.name, product_id: String(id || ''), created: true });
+  });
+
+  var rows = out.map(function(x) {
+    return [new Date().toISOString(), x.product_id, 'create_test_product',
+      x.created ? 'created' : 'exists', x.name];
+  });
+  writeUrlIdentityTestRows_(rows);
+  Logger.log('URL identity test products: ' + JSON.stringify(out));
+  return out;
+}
+
 function ensureUrlIdentityTestSheet_() {
   var ss = ss_();
   var sh = ss.getSheetByName('UrlIdentityTest');
