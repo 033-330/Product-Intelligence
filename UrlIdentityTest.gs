@@ -55,6 +55,49 @@ function writeUrlIdentityTestRows_(rows) {
   sh.getRange(sh.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
 }
 
+function smoke_urlIdentityTestBatch(ids, options) {
+  options = options || {};
+  var list = (ids && ids.length !== undefined) ? ids : [ids];
+  list = list.map(function(x) { return String(x || '').trim(); }).filter(Boolean);
+  if (!list.length) {
+    var products = readTable('Products');
+    list = products.filter(function(p) {
+      var st = String(p.official_url_status || '').toLowerCase();
+      return ['pending', 'check_failed', 'not_found', 'mismatch', 'ambiguous'].indexOf(st) >= 0;
+    }).map(function(p) { return String(p.product_id); }).slice(0, 3);
+  }
+  var started = Date.now();
+  var perTimeout = Math.max(30000, Math.min(Number(options.timeoutMs) || 75000, 150000));
+  var results = [];
+  list.forEach(function(id) {
+    if (Date.now() - started > 220000) {
+      results.push({ product_id: id, skipped: true, reason: 'batch time budget' });
+      return;
+    }
+    try {
+      var r = smoke_urlIdentityTest(id, {
+        write: options.write === true,
+        timeoutMs: perTimeout
+      });
+      results.push({ product_id: id, ok: r && r.ok !== false, candidates: r ? r.candidates : 0,
+        elapsed_ms: r ? r.elapsed_ms : 0, identity: r ? r.identity : null });
+    } catch (e) {
+      results.push({ product_id: id, ok: false,
+        reason: String(e && e.message ? e.message : e).slice(0, 300) });
+    }
+  });
+  var rows = results.map(function(r) {
+    return [new Date().toISOString(), r.product_id, 'batch',
+      r.skipped ? 'skipped' : (r.ok ? 'ok' : 'fail'),
+      JSON.stringify({ candidates: r.candidates, elapsed_ms: r.elapsed_ms,
+        source: r.identity ? r.identity.source : '', reason: r.reason || '' })];
+  });
+  writeUrlIdentityTestRows_(rows);
+  Logger.log('URL identity batch: ' + JSON.stringify(results));
+  return { ok: results.every(function(r) { return r.skipped || r.ok; }),
+    elapsed_ms: Date.now() - started, results: results };
+}
+
 function smoke_urlIdentitySelfTest() {
   var product = {
     product_id: 'TEST-0000',
