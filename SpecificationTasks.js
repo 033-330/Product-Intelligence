@@ -31,7 +31,7 @@ var OFFICIAL_PRODUCT_DOMAINS_ = [
   'logitech.com','logitechg.com','gaming.logitech.com','razer.com','steelseries.com',
   'corsair.com','hyperx.com','sony.com','asus.com','rog.asus.com','apple.com',
   'dell.com','alienware.com','hp.com','lenovo.com','msi.com','acer.com','samsung.com',
-  'microsoft.com','support.microsoft.com','bose.com','sennheiser-hearing.com',
+  'bose.com','sennheiser-hearing.com',
   'jbl.com','audio-technica.com','shure.com','keychron.com','wooting.com'
 ];
 
@@ -113,7 +113,36 @@ function isLikelyProductPath_(url) {
   var segs = path.split('/').filter(Boolean);
   var last = (segs[segs.length - 1] || '').replace(/\.html?$/, '');
   if (/(?:^|[-_])(official|specs?|review|buy|price|deals?|coupon|best|top|vs|compare|wiki|amazon|ebay|reddit|help|faq)(?:[-_]|$)/.test(last)) return false;
-  return true;
+  if (/\/products\//.test('/' + path)) return true;
+  if (/\/shop\/p\//.test('/' + path)) {
+    return /\.[0-9]{3,}-[0-9]{4,}/.test(last) || /\.[0-9]{6,}/.test(last);
+  }
+  return false;
+}
+
+function productQueryTokens_(text) {
+  var stop = { logitech: 1, gaming: 1, wireless: 1, mouse: 1, keyboard: 1,
+    headset: 1, headphones: 1, audio: 1, series: 1, official: 1, specs: 1 };
+  return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/).filter(function(t) { return t.length >= 2 && !stop[t]; });
+}
+
+function candidateTokenScore_(url, tokens) {
+  var slug = String(url || '').toLowerCase().replace(/^https?:\/\/[^/]+\//, '').split('?')[0];
+  var n = 0;
+  (tokens || []).forEach(function(t) { if (slug.indexOf(t) >= 0) n++; });
+  return n;
+}
+
+function officialCategorySeeds_(queries) {
+  var text = (queries || []).join(' ').toLowerCase();
+  if (!/logitech/.test(text)) return [];
+  var seeds = [];
+  if (/mouse|鼠标|trackball/.test(text)) seeds.push('https://www.logitechg.com/en-us/shop/c/gaming-mice');
+  if (/keyboard|键盘/.test(text)) seeds.push('https://www.logitechg.com/en-us/shop/c/gaming-keyboards');
+  if (/headset|headphone|audio|耳机|耳麦/.test(text)) seeds.push('https://www.logitechg.com/en-us/shop/c/gaming-headsets-audio');
+  if (!seeds.length) seeds.push('https://www.logitechg.com/en-us/shop/c/gaming-mice');
+  return seeds;
 }
 
 function extractOfficialUrlsFromSearchHtml_(html, domains) {
@@ -159,9 +188,14 @@ function searchOfficialProductCandidates_(productName, deadlineMs, options) {
     return deadline > 0 && Date.now() + (minMs || 30000) > deadline;
   }
 
-  var slugCandidates = /logitech/i.test(queries.join(' ')) ? guessProductUrlCandidates_(q) : [];
+  var tokens = productQueryTokens_(queries.join(' '));
   var all = [], seenAll = {};
-  slugCandidates.forEach(function(u) { if (!seenAll[u]) { seenAll[u] = 1; all.push(u); } });
+  function addCandidateUrl(u) {
+    var url = String(u || '').split('#')[0].trim();
+    if (!url || seenAll[url]) return;
+    seenAll[url] = 1;
+    all.push(url);
+  }
 
   var domains = (options.domains && options.domains.length) ? options.domains : detectBrandDomains_(q);
   var engines = [
@@ -170,7 +204,13 @@ function searchOfficialProductCandidates_(productName, deadlineMs, options) {
     'https://www.html.duckduckgo.com/html/?q='
   ];
   var domainQuery = domains.map(function(d) { return 'site:' + d; }).join(' OR ');
-  var requests = [], searchQueries = [];
+  var headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36'
+  };
+  var requests = officialCategorySeeds_(queries).map(function(url) {
+    return { url: url, muteHttpExceptions: true, followRedirects: true, headers: headers };
+  });
+  var searchQueries = [];
   queries.slice(0, 5).forEach(function(raw) {
     var text = String(raw || '').replace(/["'\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (text.length < 3) return;
@@ -181,17 +221,13 @@ function searchOfficialProductCandidates_(productName, deadlineMs, options) {
         url: base + encodeURIComponent(query),
         muteHttpExceptions: true,
         followRedirects: true,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36'
-        }
+        headers: headers
       });
     });
   });
 
   function addFound(html) {
-    extractOfficialUrlsFromSearchHtml_(String(html || '').slice(0, 500000), domains).forEach(function(u) {
-      if (!seenAll[u]) { seenAll[u] = 1; all.push(u); }
-    });
+    extractOfficialUrlsFromSearchHtml_(String(html || '').slice(0, 500000), domains).forEach(addCandidateUrl);
   }
 
   if (!outOfBudget(30000) && requests.length) {
@@ -215,31 +251,29 @@ function searchOfficialProductCandidates_(productName, deadlineMs, options) {
     }
   }
 
-  if (all.length <= slugCandidates.length && !outOfBudget(60000)
+  if (all.length < 3 && !outOfBudget(60000)
       && typeof crawl4aiCanRender_ === 'function' && crawl4aiCanRender_() && searchQueries.length) {
     try {
-      crawl4aiDiscoverOfficialUrls_(searchQueries[0].query, deadline).forEach(function(u) {
-        if (!seenAll[u]) { seenAll[u] = 1; all.push(u); }
-      });
+      crawl4aiDiscoverOfficialUrls_(searchQueries[0].query, deadline).forEach(addCandidateUrl);
     } catch (e) { Logger.log('Crawl4AI 搜索结果兜底失败：' + String(e).slice(0, 200)); }
   }
 
-  var slugSet = {};
-  slugCandidates.forEach(function(u) { slugSet[u] = 1; });
-  var slugPart = all.filter(function(u) { return slugSet[u]; });
-  var searchPart = all.filter(function(u) { return !slugSet[u]; });
-  searchPart.sort(function(a,b){
-    function score(u){var path=(u.split('/').slice(3).join('/')||'').toLowerCase(); var n=0;
-      if (/product|products|gaming|mouse|keyboard|headset|spec|p\//.test(path)) n+=3;
-      if (/\/products\//.test('/' + path)) n+=4;
-      if (/\/shop\/p\//.test('/' + path) && /(?:official|specs?|mouse|review|price|buy)$/.test(path.replace(/\.html?$/, '').split('/').pop() || '')) n-=6;
-      if (/support|search|category|accessories/.test(path)) n-=2;
-      if (path) n+=1;
-      return n;}
-    return score(b)-score(a);
+  function pathRank(u) {
+    var path = (u.split('/').slice(3).join('/') || '').toLowerCase();
+    var n = 0;
+    if (/product|products|shop\/p\/|gaming|mouse|keyboard|headset|spec/.test(path)) n += 3;
+    if (/\/products\//.test('/' + path)) n += 4;
+    if (/\.[0-9]{3,}-[0-9]{4,}/.test(path) || /\.[0-9]{6,}/.test(path)) n += 5;
+    if (/support|search|category|accessories/.test(path)) n -= 2;
+    return path ? n + 1 : n;
+  }
+  var scored = all.map(function(u) {
+    return { url: u, tokens: candidateTokenScore_(u, tokens), rank: pathRank(u) };
   });
-  var productLike = searchPart.filter(function(u){ return /^https:\/\//i.test(u) && u.split('/').length > 4; });
-  return slugPart.concat(productLike.length ? productLike : searchPart).slice(0, 20);
+  var relevant = scored.filter(function(x) { return !tokens.length || x.tokens >= 2; });
+  if (relevant.length) scored = relevant;
+  scored.sort(function(a, b) { return (b.tokens - a.tokens) || (b.rank - a.rank); });
+  return scored.slice(0, 20).map(function(x) { return x.url; });
 }
 
 

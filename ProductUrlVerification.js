@@ -30,6 +30,7 @@ var PRODUCT_IDENTITY_SCHEMA = {
 
 var URL_NON_OFFICIAL_HOSTS_ = [
   'google.com', 'bing.com', 'duckduckgo.com', 'baidu.com', 'sogou.com', 'yandex.com',
+  'microsoft.com', 'support.microsoft.com', 'msn.com',
   'amazon.com', 'amazon.co.uk', 'ebay.com', 'aliexpress.com', 'alibaba.com', 'taobao.com',
   'jd.com', 'tmall.com', 'youtube.com', 'reddit.com', 'facebook.com', 'instagram.com',
   'twitter.com', 'x.com', 'wikipedia.org', 'zhihu.com', 'bilibili.com'
@@ -603,6 +604,13 @@ function verifyProductUrl_(product, deadlineMs) {
         notes.push('官网搜索失败: ' + String(e).slice(0, 120));
       }
     });
+  }
+  var identityTokens = productQueryTokens_(queries.join(' '));
+  if (identityTokens.length) {
+    var relevant = candidates.filter(function(u) {
+      return u === existing || candidateTokenScore_(u, identityTokens) >= 2;
+    });
+    if (relevant.length) candidates = relevant;
   }
   candidates = candidates.slice(0, 16);
   if (!candidates.length) {
