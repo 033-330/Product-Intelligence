@@ -972,7 +972,13 @@ function processDriveFile_(file, opts) {
     if (doneKeys.has(key)) { stats.skipped++; continue; }   // 之前轮次已完成,连 Pass A 的 token 都省掉
     try {
       const docRow = upsertDocument_(issueNo, d, issueDate);
-      const ext = callAI(buildPassAPrompt_(docRow, String(d.text || '')), PASS_A_SCHEMA, { maxTokens: 16384 });
+      const ext = callAI(buildPassAPrompt_(docRow, String(d.text || '')), PASS_A_SCHEMA, {
+        maxTokens: Number(CONFIG.AI_MAX_OUTPUT_TOKENS) || 16384,
+        timeoutMs: Math.min(
+          Number(CONFIG.AI_CALL_BUDGET_MS) || 90000,
+          Math.max(15000, budgetMs - (Date.now() - startedMs))
+        )
+      });
       writeDocumentExtraction_(docRow, ext, issueNo, dedup, stats);
       doneKeys.add(key);
       runCount++;
