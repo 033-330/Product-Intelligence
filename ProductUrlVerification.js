@@ -272,6 +272,52 @@ function productModelTokens_(name) {
     .filter(function(t) { return t && t.length >= 2 && !generic[t.toLowerCase()]; });
 }
 
+function productDistinctiveTokens_(name, brand) {
+  var generic = {
+    pro: 1, g: 1, gaming: 1, wireless: 1, light: 1, lightspeed: 1,
+    mouse: 1, mice: 1, keyboard: 1, headset: 1, headphones: 1,
+    audio: 1, series: 1, edition: 1, logitech: 1,
+    the: 1, for: 1, with: 1, and: 1
+  };
+  var raw = stripBrandFromProductName_(name, brand).toLowerCase()
+    .split(/[^a-z0-9\u4e00-\u9fff]+/).filter(Boolean);
+  var out = [];
+  for (var i = 0; i < raw.length; i++) {
+    var t = raw[i];
+    if (t === 'x' && /^\d+$/.test(raw[i + 1] || '')) {
+      out.push('x' + raw[i + 1]);
+      i++;
+      continue;
+    }
+    if (generic[t] || t.length < 2) continue;
+    if (/^\d+$/.test(t)) continue;
+    out.push(t);
+  }
+  var compact = stripBrandFromProductName_(name, brand).toLowerCase()
+    .normalize('NFKC').replace(/[^a-z0-9]/g, '');
+  var xm = compact.match(/x[a-z]*(\d+)/);
+  if (xm) out.push('x' + xm[1]);
+
+  var base = out.slice();
+  for (var j = 0; j < base.length - 1; j++) {
+    if (/^[a-z]{2,}$/.test(base[j]) && /^[a-z]{2,}$/.test(base[j + 1])) {
+      out.push(base[j] + base[j + 1]);
+    }
+  }
+  var seen = {};
+  return out.filter(function(t) {
+    if (seen[t]) return false;
+    seen[t] = 1;
+    return true;
+  });
+}
+
+function distinctMatchedTokens_(tokens) {
+  return (tokens || []).filter(function(t, i, arr) {
+    return !arr.some(function(o) { return o !== t && o.length > t.length && o.indexOf(t) >= 0; });
+  });
+}
+
 /**
  * 纯函数：判断官网页面文本是否确实对应目标产品。
  * strongText 为 <title>/<h1>/og:title，fullText 为去标签后的正文。
@@ -292,16 +338,14 @@ function productPageMatches_(canonicalName, brand, strongText, fullText) {
   if (strongNorm && fullNorm.length >= 4 && strongNorm.indexOf(fullNorm) >= 0) return true;
   if (bodyNorm && modelNorm.length >= 6 && bodyNorm.indexOf(modelNorm) >= 0) return true;
 
-  var tokens = productModelTokens_(model || name);
+  var tokens = productDistinctiveTokens_(name, brand);
   if (tokens.length && strongNorm) {
-    var hits = 0, distinctive = 0;
+    var hits = [];
     tokens.forEach(function(t) {
       var n = normalizeAlias(t);
-      if (n.length >= 2 && strongNorm.indexOf(n) >= 0) hits++;
-      if (t.length >= 4) distinctive++;
+      if (n.length >= 2 && strongNorm.indexOf(n) >= 0) hits.push(n);
     });
-    if (hits === tokens.length) return true;
-    if (tokens.length >= 2 && hits / tokens.length >= 0.75 && distinctive > 0) return true;
+    if (distinctMatchedTokens_(hits).length >= 2) return true;
   }
   return false;
 }
@@ -393,21 +437,20 @@ function productPageMatchesMulti_(product, page, officialNames) {
   var ids = (page.identifiers || []).map(function(s) { return normalizeAlias(s); }).filter(Boolean);
   var tokens = [];
   names.concat([product.canonical_name || '']).forEach(function(n) {
-    var stripped = stripBrandFromProductName_(n, product.brand);
-    productModelTokens_(stripped).forEach(function(t) {
-      if (t.length >= 4) tokens.push(normalizeAlias(t));
+    productDistinctiveTokens_(n, product.brand).forEach(function(t) {
+      tokens.push(normalizeAlias(t));
     });
   });
-  var seen = {};
+  var seen = {}, hits = [];
   for (var j = 0; j < tokens.length; j++) {
     var t = tokens[j];
-    if (!t || t.length < 4 || seen[t]) continue;
+    if (!t || t.length < 2 || seen[t]) continue;
     seen[t] = 1;
     for (var k = 0; k < ids.length; k++) {
-      if (ids[k] === t || ids[k].indexOf(t) >= 0) return true;
+      if (ids[k] === t || ids[k].indexOf(t) >= 0) { hits.push(t); break; }
     }
   }
-  return false;
+  return distinctMatchedTokens_(hits).length >= 2;
 }
 
 function fetchOfficialProductPage_(url) {
