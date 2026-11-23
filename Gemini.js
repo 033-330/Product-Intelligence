@@ -285,21 +285,6 @@ function repairTruncatedJson_(text) {
   throw new Error('模型输出被截断且无法抢救完整条目: ' + src.slice(0, 200));
 }
 
-/* ---------- 诊断:验证当前 AI 提供方可用性(运行后看 查看→日志) ---------- */
-function testGemini() {
-  const results = { provider_order: aiProviderOrder_() };
-  try {
-    const t = callAI('用一句话回答:1+1等于几?');
-    results.plain = 'OK: ' + String(t).slice(0, 60);
-  } catch (e) { results.plain = 'FAIL: ' + String(e).slice(0, 200); }
-  try {
-    const j = callAI('输出 JSON:{"ok":true}', { type: 'OBJECT', properties: { ok: { type: 'BOOLEAN' } } });
-    results.schema = 'OK: ' + JSON.stringify(j);
-  } catch (e) { results.schema = 'FAIL: ' + String(e).slice(0, 200); }
-  Logger.log('AI 提供方顺序: ' + aiProviderOrder_().join(',') + '\n' + JSON.stringify(results, null, 2));
-  return results;
-}
-
 /* ============================================================
  * Pass A:单 Document → 结构化抽取
  * ============================================================ */

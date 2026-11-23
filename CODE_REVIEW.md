@@ -7,6 +7,8 @@
 - 审查方式：静态阅读 + 引用关系检索 + `node --check` 语法检查；2026-11-02 追加 `npm run check` / `npm test`，并用真实 Crawl4AI 对 Logitech PRO X SUPERLIGHT 2 DEX 做过一次端到端验证
 - 结论性质：结构复审。2026-10-30 轮未改动业务代码；2026-11-02 轮已落地 URL 核验第一批低风险改造（见 §3.1），并把 V2.1 P0 方案固化为实施任务（见 §7）
 
+> 2026-11-23 清理说明：`Debug.js`、`SmokeTest.gs`、`Crawl4AISingleTest.gs`、`FullPipelineEntry.gs`、`UrlIdentityTest.gs`、`tests/`、`dev/`、`legacy/`、`samples/` 及本地测试脚本已删除。下文涉及这些文件的描述仅为历史记录，不代表当前仓库结构。
+
 ---
 
 ## 1. 总体结论

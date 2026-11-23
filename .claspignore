@@ -2,19 +2,9 @@
 .arts/**
 .codeartsdoer/**
 .git/**
-dev/**
-legacy/**
-samples/**
-tests/**
 node_modules/**
 
-# Local tooling and documentation
-package.json
-package-lock.json
-node_modules/**
-runclasp.js
-runthis.js
-fix_smoke.ps1
+# Local documentation and generated files
 *.md
 *.xlsx
 *.log

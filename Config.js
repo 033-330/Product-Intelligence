@@ -74,11 +74,6 @@ const CONFIG = {
   SEGMENT_MAX_TOKENS: 3000,
   SEGMENT_OVERLAP_CHARS: 120,
 
-  /* --- V2.1 P0：端到端验证入口限额 --- */
-  FULL_PIPELINE_MAX_SEGMENTS: 3,
-  FULL_PIPELINE_MAX_PRODUCTS: 3,
-  FULL_PIPELINE_MAX_SPECS: 1,
-
   /* --- 默认时间窗 ---
    * 0  = 累计全部历史数据(Top N = 历史提及最多的 N 个) ← 默认
    * 30 = 最近 30 天窗口(按 Documents.published_at 过滤) */
@@ -110,13 +105,6 @@ function scriptProperty_(key) {
   } catch (e) {
     return '';
   }
-}
-
-function numberProperty_(key, fallback) {
-  var raw = scriptProperty_(key);
-  if (raw === '') return fallback;
-  var n = Number(raw);
-  return isNaN(n) ? fallback : n;
 }
 
 function getApiKey_() {
