@@ -8,17 +8,33 @@ const SHEET_DEFS = {
                  'published_at', 'comment_count', 'char_count', 'text', 'created_at',
                  'segment_id', 'content_hash', 'parent_section', 'start_offset', 'end_offset', 'segment_type'],
   Products:     ['product_id', 'canonical_name', 'brand', 'category',
-                 'first_seen_issue', 'status', 'created_at', 'official_url',
-                  'official_url_status', 'official_url_checked_at', 'official_url_notes',
-                  'official_name', 'identity_source', 'identity_checked_at'],
+                  'first_seen_issue', 'status', 'created_at', 'official_url',
+                   'official_url_status', 'official_url_checked_at', 'official_url_notes',
+                   'official_name', 'identity_source', 'identity_checked_at',
+                   'identity_status', 'resolution_status', 'identity_evidence',
+                   'confirmed_at', 'confirmed_by'],
+  Product_Candidates: ['candidate_id', 'raw_mention', 'normalized_mention', 'canonical_candidate',
+                  'brand', 'category', 'sku', 'generation', 'variant', 'product_url_candidate',
+                  'source', 'source_type', 'identity_score', 'url_score', 'url_verified',
+                  'resolution_status', 'proposed_product_id', 'product_id', 'evidence_json',
+                  'reject_reason', 'issue_no', 'created_at', 'updated_at'],
   ProductSpecifications: ['spec_id', 'product_id', 'spec_key', 'spec_label', 'value', 'unit',
                  'raw_value', 'source_url', 'fetched_at', 'verification_status'],
   ProductSpecificationsRaw: ['raw_record_id', 'product_id', 'spec_key', 'source_url', 'source_type',
                  'raw_label', 'raw_value', 'raw_unit', 'normalized_value', 'normalized_unit',
                  'fetched_at', 'parser_name', 'verification_status', 'evidence_notes'],
   SpecificationDefinitions: ['spec_key', 'spec_label', 'category', 'subcategory', 'data_type',
-                 'unit', 'allowed_values', 'is_common', 'is_comparable', 'comparison_group',
-                 'normalization_rule', 'is_required', 'display_order', 'is_active', 'definition_notes'],
+                  'unit', 'allowed_values', 'is_common', 'is_comparable', 'comparison_group',
+                  'normalization_rule', 'is_required', 'display_order', 'is_active', 'definition_notes'],
+  Specification_Dictionary: ['spec_id', 'category', 'canonical_field', 'display_name', 'description',
+                  'data_type', 'canonical_unit', 'normalization_rule', 'comparison_direction',
+                  'required', 'aliases', 'created_at', 'updated_at'],
+  Product_Specifications_Raw: ['raw_id', 'product_id', 'canonical_field', 'raw_field_name', 'raw_value',
+                  'extracted_value', 'source_url', 'source_title', 'source_type', 'evidence_text',
+                  'extraction_method', 'model_version', 'fetched_at', 'verification_status', 'rejection_reason'],
+  Product_Specifications: ['product_id', 'canonical_field', 'normalized_value', 'normalized_unit',
+                  'selected_source_url', 'source_type', 'evidence_text', 'verification_status',
+                  'confidence', 'last_verified_at'],
   SpecificationTasks: ['task_id', 'product_id', 'task_type', 'status', 'priority', 'attempt_count',
                  'max_attempts', 'next_attempt_at', 'created_at', 'started_at', 'finished_at',
                  'last_error', 'source_url', 'parser_version', 'task_notes'],
@@ -26,7 +42,8 @@ const SHEET_DEFS = {
   ProductComponents: ['component_id', 'bundle_product_id', 'component_product_id', 'component_name',
                  'quantity', 'source_url', 'created_at'],
 
-  ProductAliases: ['alias', 'product_id', 'normalized', 'created_at'],
+  ProductAliases: ['alias', 'product_id', 'normalized', 'created_at',
+                  'alias_status', 'evidence', 'source'],
   // 话题身份 = (product_id, name):同一话题名在不同产品下是不同实体
   Topics:       ['topic_id', 'product_id', 'name', 'keywords', 'summary', 'created_at', 'auto_created', 'status'],
   UserNeeds:    ['need_id', 'product_id', 'category', 'need_type', 'description', 'evidence_quote',
@@ -186,6 +203,7 @@ function setupSheets() {
   try {
     if (typeof seedProductCategories_ === 'function') seedProductCategories_();
     if (typeof seedSpecificationDefinitions_ === 'function') seedSpecificationDefinitions_();
+    if (typeof seedSpecificationDictionary_ === 'function') seedSpecificationDictionary_();
   } catch (e) {
     Logger.log('规格字典初始化失败：' + String(e));
   }

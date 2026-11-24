@@ -9,6 +9,8 @@
 *.xlsx
 *.log
 node_modules/
+__pycache__/
+*.pyc
 
 # Local OS files
 .DS_Store

@@ -407,53 +407,49 @@ function buildPassAPrompt_(doc, text) {
  * ============================================================ */
 
 function buildResolvePrompt_(names, aliasRows) {
-  const registry = aliasRows
+  const registry = (aliasRows || [])
     .map(r => r.product_id + ' | ' + r.alias)
     .join('\n');
 
   return [
-    '你负责产品实体消重和产品官网 URL 核验。',
+    '你只负责产品实体候选判断，不负责官网 URL 核验，不负责创建产品。',
     '',
-    '【一、现有产品库】',
-    '以下是产品库中已有的产品及其别名，每行格式为 product_id | 别名：',
+    '【一、现有产品库别名】',
     registry || '(空)',
     '',
-    '【二、待判断的产品名称】',
+    '【二、待判断的原始提及】',
     names.map((n, i) => (i + 1) + '. ' + n).join('\n'),
     '',
-    '【三、产品实体识别规则】',
-    '1. product_id 只能填写现有产品库中真实存在的 ID，或 NEW。',
-    '2. 只有在能够确认名称指向同一具体产品时，才允许匹配已有 product_id。',
-    '3. 如果型号、代际、品类或产品变体无法确认，一律填 NEW，不得强行合并。',
-    '4. 同一产品的缩写、昵称、谐音昵称、不同语言名称可以映射到同一产品，但必须有充分证据。',
-    '5. 不得仅凭品牌相同或名称相似就认定为同一产品。',
-    '6. 不同代际、不同型号、不同尺寸或不同硬件变体，默认视为不同产品，除非有明确证据证明它们是同一产品的别名。',
-    '7. 对于 NEW，填写 canonical_name、brand、category。',
-    '8. canonical_name 必须来自原文中逐字出现的产品名写法,只允许做最小整理(去多余空格、统一大小写)。禁止用外部知识替换或"修正"原文产品名(如把「PRO X3 SUPERSTRIKE」改成「Pro X Superlight 3」),禁止加 (Hypothetical)/(假设)/(推测)/(tentative) 等任何标注后缀。无法确定完整型号时,直接用原文写法,不要猜测。',
-    '9. category 只能填写 mouse、keyboard、headset、accessory、unknown。',
+    '【三、规则】',
+    '1. product_id 只能填写现有产品库中的真实 ID 或 NEW；它只是候选提示，不代表身份已确认。',
+    '2. 只有在型号、代际、品类、外形、左右手设计和变体都能对应时，才能返回现有 product_id 与 existing_candidate。',
+    '3. 只要有一项关键证据冲突，必须返回 ambiguous，不得把相似型号合并。',
+    '4. 不同代际、不同型号、不同尺寸、不同硬件变体默认视为不同产品。',
+    '5. 禁止因为搜索结果、URL 或常见产品命名规律而修正原始提及。',
+    '6. canonical_name 必须逐字来自原文或现有产品库；禁止用外部知识替换、补全或修正型号。',
+    '7. 不得输出任何 URL，不得输出 url_status、url_verified、url_product_match 等字段。',
+    '8. identity_evidence 必须说明具体依据或具体冲突点；没有证据时写明没有证据。',
+    '9. confidence 只表示候选判断把握，不表示身份已确认。',
+    '10. category 只能填写 mouse、keyboard、headset、accessory、unknown。',
     '',
-    '【四、官网 URL 核验规则】',
-    '1. 每个产品都需要单独判断官网 URL 状态，包括匹配已有产品的情况。',
-    '2. official_url 必须指向该具体产品的官方产品详情页。',
-    '3. 优先使用产品制造商官方网站。品牌首页、分类页、搜索结果页、新闻报道页和第三方电商页面都不能作为已验证的产品详情页。',
-    '4. 必须有实际核验依据，确认页面中的产品名称、型号或其他标识与当前产品一致，才能将 url_status 设为 verified。',
-    '5. 不得根据产品名称、常见 URL 格式或记忆推测 URL，不得编造网址。',
-    '6. 不同型号、代际或硬件变体必须分别核实，不能直接沿用相似产品的 URL。',
-    '7. 如果已经实际核验并确认对应官网产品页：填写 official_url，url_status 为 verified，url_product_match 为 true。',
-    '8. 如果没有找到可靠的官方产品页：official_url 填空字符串，url_status 为 not_found，url_product_match 为 false。',
-    '9. 如果有多个候选页面且无法确定对应关系：official_url 填空字符串，url_status 为 ambiguous，url_product_match 为 false。',
-    '10. 如果当前环境无法实际访问或核验网页，不得声称已完成验证。official_url 填空字符串，url_status 为 not_found 或 ambiguous，url_product_match 为 false。',
-    '11. url_source 记录实际核验来源或简短依据。没有实际核验依据时填写空字符串。',
-    '12. 产品实体识别和 URL 核验是独立判断。确认产品身份不代表 URL 已经验证。',
-    '13. 如果匹配已有 product_id，但未核验官网 URL，仍然必须如实返回 URL 核验状态，不得伪造 URL。',
-    '',
-    '【五、输出要求】',
-    '1. 必须为输入中的每一个名称返回一条 mapping，不能遗漏或自行增加名称。',
-    '2. name 必须与输入名称完全一致。',
-    '3. product_id 为已有产品 ID 或 NEW。',
-    '4. 对已有产品，尽可能返回已知的 canonical_name、brand 和 category；无法确认时使用空字符串或 unknown。',
-    '5. 对 NEW 产品，如果身份信息不足，保守填写，不得编造型号。',
-    '6. 只输出符合 JSON Schema 的 JSON，不要输出 Markdown、解释文字或代码围栏。'
+    '【四、输出要求】',
+    '1. 必须为输入中的每个名称返回一条 mapping，name 与输入完全一致。',
+    '2. resolution 只能是 existing_candidate、new_candidate、ambiguous、unknown。',
+    '3. 只输出符合 JSON Schema 的 JSON，不要输出 Markdown、解释文字或代码围栏。'
+  ].join('\n');
+}
+
+function buildCandidateDiscoveryPrompt_(rawMention, contextText) {
+  return [
+    '你是产品候选发现助手，只生成待核验候选，不确认产品身份，不判断 URL 是否通过。',
+    '原始提及：' + String(rawMention || ''),
+    '上下文：' + String(contextText || '').slice(0, 3000),
+    '规则：',
+    '1. 每个候选必须有 canonical_candidate、brand、category、source 和 evidence。',
+    '2. product_url_candidate 只能作为待核验 URL，不得声称已经验证。',
+    '3. 代际、变体、SKU 不明时写入 unknown，不得猜测。',
+    '4. 不得把相似型号合并成一个候选。',
+    '5. 只输出符合 JSON Schema 的 JSON。'
   ].join('\n');
 }
 
@@ -466,48 +462,20 @@ const RESOLVE_SCHEMA = {
       items: {
         type: 'OBJECT',
         properties: {
-          name: {
-            type: 'STRING'
-          },
-          product_id: {
-            type: 'STRING'
-          },
-          canonical_name: {
-            type: 'STRING'
-          },
-          brand: {
-            type: 'STRING'
-          },
+          name: { type: 'STRING' },
+          product_id: { type: 'STRING' },
+          canonical_name: { type: 'STRING' },
+          brand: { type: 'STRING' },
           category: {
             type: 'STRING',
-            enum: [
-              'mouse',
-              'keyboard',
-              'headset',
-              'accessory',
-              'unknown'
-            ]
+            enum: ['mouse', 'keyboard', 'headset', 'accessory', 'unknown']
           },
-          official_url: {
+          resolution: {
             type: 'STRING',
-            description: '已核验的官方产品详情页 URL；未核验时为空字符串'
+            enum: ['existing_candidate', 'new_candidate', 'ambiguous', 'unknown']
           },
-          url_status: {
-            type: 'STRING',
-            enum: [
-              'verified',
-              'not_found',
-              'ambiguous'
-            ]
-          },
-          url_source: {
-            type: 'STRING',
-            description: '实际核验的来源或依据；没有则为空字符串'
-          },
-          url_product_match: {
-            type: 'BOOLEAN',
-            description: '官网页面是否已核实为当前具体产品'
-          }
+          identity_evidence: { type: 'STRING' },
+          confidence: { type: 'NUMBER' }
         },
         required: [
           'name',
@@ -515,15 +483,43 @@ const RESOLVE_SCHEMA = {
           'canonical_name',
           'brand',
           'category',
-          'official_url',
-          'url_status',
-          'url_source',
-          'url_product_match'
+          'resolution',
+          'identity_evidence',
+          'confidence'
         ]
       }
     }
   },
   required: ['mapping']
+};
+
+const CANDIDATE_DISCOVERY_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    candidates: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          raw_mention: { type: 'STRING' },
+          canonical_candidate: { type: 'STRING' },
+          brand: { type: 'STRING' },
+          category: {
+            type: 'STRING',
+            enum: ['mouse', 'keyboard', 'headset', 'accessory', 'unknown']
+          },
+          sku: { type: 'STRING' },
+          generation: { type: 'STRING' },
+          variant: { type: 'STRING' },
+          product_url_candidate: { type: 'STRING' },
+          source: { type: 'STRING' },
+          evidence: { type: 'STRING' }
+        },
+        required: ['raw_mention', 'canonical_candidate', 'brand', 'category', 'source', 'evidence']
+      }
+    }
+  },
+  required: ['candidates']
 };
 
 /* ============================================================

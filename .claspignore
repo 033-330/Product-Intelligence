@@ -2,7 +2,10 @@
 .arts/**
 .codeartsdoer/**
 .git/**
+.hallmark/**
 node_modules/**
+python/**
+tests/**
 
 # Local documentation and generated files
 *.md

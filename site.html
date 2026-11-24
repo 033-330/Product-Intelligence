@@ -161,7 +161,7 @@
 </style><base target="_blank">
 </head><body>
 <header><div class="brand"><div class="logo">P</div><div>Product Intelligence<small>PRODUCT SIGNALS, NOT DOCUMENTS</small></div></div><div class="top-right"><span><i class="live-dot"></i>数据实时来自 Google Sheets</span><span id="hdrDate">数据快照</span></div></header>
-<div class="shell"><div class="layout"><aside class="sidebar"><div class="side-label">WORKSPACE</div><div class="nav active" data-page="overview"><span class="ico">▦</span>产品总览</div><div class="nav" data-page="overview" data-focus="mouse"><span class="ico">◉</span>鼠标</div><div class="nav" data-page="overview" data-focus="keyboard"><span class="ico">⌨</span>键盘</div><div class="nav" data-page="overview" data-focus="headset"><span class="ico">◖</span>耳机</div><div class="side-label">INTELLIGENCE</div><div class="nav" id="eventsNav"><span class="ico">↗</span>近期事件</div><div class="side-note"><b>数据口径</b>全部指标来自结构化抽取<br>提及数可回溯到原始来源<br>每产品 Top Topics 为全历史累计排序</div></aside>
+<div class="shell"><div class="layout"><aside class="sidebar"><div class="side-label">WORKSPACE</div><div class="nav active" data-page="overview"><span class="ico">▦</span>产品总览</div><div class="nav" data-page="overview" data-focus="mouse">鼠标</div><div class="nav" data-page="overview" data-focus="keyboard">键盘</div><div class="nav" data-page="overview" data-focus="headset">耳机</div><div class="side-label">INTELLIGENCE</div><div class="nav" id="eventsNav"><span class="ico">↗</span>近期事件</div><div class="side-note"><b>数据口径</b>全部指标来自结构化抽取<br>提及数可回溯到原始来源<br>每产品 Top Topics 为全历史累计排序</div></aside>
 <main class="main">
 <section id="overviewView"><div class="hero"><div><div class="eyebrow">PRODUCT-CENTRIC RESEARCH</div><h1>从产品出发，读懂市场信号。</h1><p>找到一款具体产品，快速查看它被讨论什么、用户在意什么，以及它经常与哪些竞品一起出现。Newsletter 是数据来源，不再是信息入口。</p></div><div class="snapshot">当前研究集<strong id="snapshotName">—</strong><span id="snapshotDesc">加载中…</span></div></div>
 <div class="feature-panel" id="comparePanel">
@@ -263,7 +263,7 @@
 </main></div></div><div class="toast" id="toast"></div>
 <script>
 const catNames = {mouse:'鼠标',trackball:'轨迹球',pointing_device:'指向设备',keyboard:'键盘',combo:'键鼠套装',headset:'游戏耳机',headphones:'耳机',earbuds:'耳塞',speaker:'扬声器',webcam:'网络摄像头',conference_camera:'会议摄像头',conference_system:'会议系统',speakerphone:'扬声器电话',microphone:'麦克风',gaming_controller:'游戏控制器',racing_wheel:'赛车方向盘',flight_simulation:'飞行模拟',presenter:'演示器',tablet_accessory:'平板配件',lighting:'灯光',mousepad:'鼠标垫',receiver:'接收器',stand:'支架',accessory:'配件',brand:'品牌'};
-const catIcons = {mouse:'🖱️',keyboard:'⌨️',headset:'🎧',accessory:'▰',brand:'◉'};
+const catIcons = {mouse:'',keyboard:'',headset:'',accessory:'▰',brand:'◉'};
 const $ = s => document.querySelector(s);
 let productList = [];
 let currentProduct = null;
@@ -327,7 +327,7 @@ function renderProducts() {
   $('#resultCount').textContent = `${arr.length} 个产品 · 按全历史累计话题提及排序`;
   $('#productGrid').innerHTML = arr.length ? arr.map(p => `
     <article class="product" data-id="${p.product_id}">
-      <div class="product-top"><div class="device">${iconOf(p)}</div><span class="type">${catNames[p.category]||p.category}</span>${p.official_url ? `<a class="prod-official" href="${esc(p.official_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">官网 ↗</a>` : ''}</div>
+      <div class="product-top">${iconOf(p) ? `<div class="device">${iconOf(p)}</div>` : ''}<span class="type">${catNames[p.category]||p.category}</span>${p.official_url ? `<a class="prod-official" href="${esc(p.official_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">官网 ↗</a>` : ''}</div>
       <h3>${esc(p.name)}</h3>
       <div class="subname">${esc(p.aliases.slice(0,2).join(' / '))}</div>
       <div class="mini-topics">${p.top_topics.slice(0,3).map(t=>`<span class="pill">${esc(t.name)}</span>`).join('')}</div>

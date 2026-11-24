@@ -51,7 +51,7 @@ function asStringArray_(value, limit) {
 }
 
 function identityCacheKey_(product) {
-  return 'url_identity:' + normalizeAlias(
+  return 'identity_hint:' + normalizeAlias(
     String(product.brand || '') + ' ' + String(product.canonical_name || ''));
 }
 
@@ -72,10 +72,11 @@ function buildIdentityPrompt_(product) {
   var brand = String(product.brand || '');
   var name = String(product.canonical_name || '');
   return [
-    '你是产品身份解析助手。输入的名称可能来自新闻/论坛，常用缩写、昵称或中文简称，不一定是官方产品名。',
-    '请基于输入推断最可能的官方产品名、型号码、品牌官网主域名和多条搜索词，帮助后续抓取官网页面验证。',
-    '严格规则：不要输出任何 URL；不要输出电商/搜索引擎/百科域名；不确定的型号也要给候选并降低 confidence；候选项必须能在后续官网页面抓取中被验证。',
-    'official_names 给 1-4 个最可能的官方全名；aliases 给 1-6 个常见缩写/简称；model_codes 给型号或代号；brand_domains 只给主域名（如 logitechg.com、razer.com）；search_queries 给 2-5 条搜索词，优先“品牌 + 官方名/型号”，不要加 buy。',
+    '你是产品搜索线索生成助手，不确认产品身份，不创建产品名，不输出 URL。',
+    '输入名称可能来自新闻/论坛，常用缩写、昵称或中文简称；你只能生成后续用于官方目录和搜索的候选线索。',
+    'official_names 表示候选官方名，不是已确认名称；aliases 和 model_codes 只作为搜索词素材。',
+    '严格规则：不得把相似型号合并；不得把 2 代映射为 3 代；不得混淆 DEX、2c、SE、SuperStrike 等变体；不得输出电商、搜索引擎、百科域名或 URL。',
+    'brand_domains 只给品牌官网主域名；search_queries 给 2-5 条搜索词，优先“品牌 + 官方名/型号”，不要加 buy；不确定时降低 confidence 并在 notes 写明冲突。',
     '',
     '品牌: ' + brand,
     '名称: ' + name,
@@ -83,14 +84,20 @@ function buildIdentityPrompt_(product) {
   ].join('\n');
 }
 
-function resolveProductIdentity_(product, deadlineMs) {
+function fallbackIdentityHints_(product, note) {
+  var hints = fallbackProductIdentity_(product, note);
+  hints.source = 'fallback_hint';
+  return hints;
+}
+
+function buildIdentityHints_(product, deadlineMs) {
   var enabled = String(
     scriptProperty_('PRODUCT_IDENTITY_ENABLED')
     || (typeof CONFIG !== 'undefined' && CONFIG.PRODUCT_IDENTITY_ENABLED !== false ? '1' : '0')
   ).toLowerCase();
-  if (enabled === '0' || enabled === 'false') return fallbackProductIdentity_(product);
+  if (enabled === '0' || enabled === 'false') return fallbackIdentityHints_(product);
   if (typeof hasConfiguredAIKey_ === 'function' && !hasConfiguredAIKey_()) {
-    return fallbackProductIdentity_(product);
+    return fallbackIdentityHints_(product);
   }
 
   var cacheKey = identityCacheKey_(product);
@@ -98,7 +105,7 @@ function resolveProductIdentity_(product, deadlineMs) {
   if (cached && cached.search_queries && cached.search_queries.length) return cached;
 
   var remaining = Number(deadlineMs) ? Number(deadlineMs) - Date.now() : 60000;
-  if (remaining < 90000) return fallbackProductIdentity_(product, '时间不足，跳过 AI 身份解析');
+  if (remaining < 90000) return fallbackIdentityHints_(product, '时间不足，跳过 AI 线索生成');
 
   var timeoutMs = Math.max(5000, Math.min(
     Number(CONFIG.PRODUCT_IDENTITY_TIMEOUT_MS) || 20000,
@@ -109,7 +116,7 @@ function resolveProductIdentity_(product, deadlineMs) {
       maxTokens: 1024,
       timeoutMs: timeoutMs
     }) || {};
-    var fallback = fallbackProductIdentity_(product);
+    var fallback = fallbackIdentityHints_(product);
     var out = {
       official_names: asStringArray_(raw.official_names, 4),
       aliases: asStringArray_(raw.aliases, 6),
@@ -120,15 +127,19 @@ function resolveProductIdentity_(product, deadlineMs) {
       search_queries: asStringArray_(raw.search_queries, 5),
       confidence: String(raw.confidence || 'medium').slice(0, 20),
       notes: asStringArray_(raw.notes, 3),
-      source: 'ai'
+      source: 'ai_hint'
     };
     if (!out.search_queries.length) out.search_queries = fallback.search_queries;
     if (!out.brand_domains.length) out.brand_domains = fallback.brand_domains;
     cachePut_(cacheKey, out);
     return out;
   } catch (e) {
-    return fallbackProductIdentity_(product, 'AI 身份解析失败: ' + String(e && e.message ? e.message : e));
+    return fallbackIdentityHints_(product, 'AI 线索生成失败: ' + String(e && e.message ? e.message : e));
   }
+}
+
+function resolveProductIdentity_(product, deadlineMs) {
+  return buildIdentityHints_(product, deadlineMs);
 }
 
 function identityOfficialNames_(identity, product) {
@@ -208,7 +219,20 @@ function isCandidateUrlAllowed_(url, domains) {
   return false;
 }
 
+function isProductConfirmed_(product) {
+  if (!product) return false;
+  var status = String(product.identity_status || '').toLowerCase();
+  var resolution = String(product.resolution_status || '').toLowerCase();
+  var source = String(product.identity_source || '').toLowerCase();
+  if (status === 'confirmed') return true;
+  if (source === 'ai_hint' || source === 'fallback_hint') return false;
+  if (resolution === 'confirmed' && source !== 'ai') return true;
+  return isProductUrlVerified_(product) && !!String(product.official_name || '').trim();
+}
+
 function saveProductIdentity_(product, identity) {
+  var source = String((identity && identity.source) || '').toLowerCase();
+  if (!isProductConfirmed_(product) || source === 'ai_hint' || source === 'fallback_hint') return;
   try {
     var official = (identity.official_names || [])[0] || '';
     updateProductUrlFields_(product.product_id, {
@@ -250,10 +274,8 @@ function storedProductIdentity_(product) {
 function ensureProductIdentity_(product, deadlineMs) {
   var checked = Date.parse(String(product.identity_checked_at || ''));
   var fresh = isFinite(checked) && (Date.now() - checked) < 30 * 24 * 3600 * 1000;
-  if (product.official_name && fresh) return storedProductIdentity_(product);
-  var identity = resolveProductIdentity_(product, deadlineMs);
-  if (identity && identity.source === 'ai') saveProductIdentity_(product, identity);
-  return identity;
+  if (isProductConfirmed_(product) && product.official_name && fresh) return storedProductIdentity_(product);
+  return buildIdentityHints_(product, deadlineMs);
 }
 
 function isProductUrlVerified_(product) {

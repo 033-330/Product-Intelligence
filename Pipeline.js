@@ -129,7 +129,12 @@ function buildDedupSets_() {
 
 function buildAliasIndex_() {
   const idx = {};
-  readTable('ProductAliases').forEach(r => { idx[String(r.normalized)] = r.product_id; });
+  readTable('ProductAliases').forEach(r => {
+    const status = String(r.alias_status || 'confirmed').toLowerCase();
+    if (status === 'pending' || status === 'rejected' || status === 'hint') return;
+    const key = String(r.normalized || normalizeAlias(r.alias || ''));
+    if (key && r.product_id) idx[key] = r.product_id;
+  });
   return idx;
 }
 
@@ -245,16 +250,174 @@ function normalizeBrand_(b) {
   return map[key] || key;
 }
 
-function addAlias_(alias, productId) {
+function addAlias_(alias, productId, opts) {
+  opts = opts || {};
   const norm = normalizeAlias(alias);
-  if (!norm) return;
-  const dup = readTable('ProductAliases').some(r => r.normalized === norm);
+  if (!norm || !productId) return;
+  const dup = readTable('ProductAliases').some(r => String(r.normalized || '') === norm);
   if (!dup) {
     appendRow('ProductAliases', {
-      alias: alias, product_id: productId, normalized: norm,
+      alias: String(alias || '').trim(), product_id: String(productId), normalized: norm,
       created_at: new Date().toISOString(),
+      alias_status: String(opts.status || 'confirmed'),
+      evidence: String(opts.evidence || '').slice(0, 2000),
+      source: String(opts.source || '').slice(0, 100),
     });
   }
+}
+
+function candidateKey_(rawMention, canonicalCandidate, source) {
+  return [normalizeAlias(rawMention), normalizeAlias(canonicalCandidate || rawMention), String(source || '')].join('|');
+}
+
+function setProductCandidateRow_(existing, rows, values) {
+  const sh = sheet_('Product_Candidates');
+  const rowIndex = rows.indexOf(existing) + 2;
+  Object.keys(values).forEach(function(key) {
+    const col = SHEET_DEFS.Product_Candidates.indexOf(key);
+    if (col >= 0) sh.getRange(rowIndex, col + 1).setValue(values[key]);
+  });
+}
+
+function upsertProductCandidate_(rawMention, candidate, opts) {
+  candidate = candidate || {};
+  opts = opts || {};
+  const rows = readTable('Product_Candidates');
+  const source = String(candidate.source || opts.source || 'gemini_resolve');
+  const key = candidateKey_(rawMention, candidate.canonical_candidate || rawMention, source);
+  const existing = rows.filter(function(r) {
+    return candidateKey_(r.raw_mention, r.canonical_candidate, r.source) === key;
+  })[0] || null;
+  const now = new Date().toISOString();
+  const row = {
+    candidate_id: existing ? String(existing.candidate_id) : nextId('CAND', 'Product_Candidates', 'candidate_id'),
+    raw_mention: String(rawMention || '').trim(),
+    normalized_mention: normalizeAlias(rawMention),
+    canonical_candidate: String(candidate.canonical_candidate || '').trim(),
+    brand: String(candidate.brand || '').trim(),
+    category: String(candidate.category || 'unknown').trim(),
+    sku: String(candidate.sku || '').trim(),
+    generation: String(candidate.generation || '').trim(),
+    variant: String(candidate.variant || '').trim(),
+    product_url_candidate: String(candidate.product_url_candidate || '').trim(),
+    source: source,
+    source_type: String(candidate.source_type || 'ai_hint'),
+    identity_score: candidate.identity_score === undefined || candidate.identity_score === '' ? '' : Number(candidate.identity_score),
+    url_score: candidate.url_score === undefined || candidate.url_score === '' ? '' : Number(candidate.url_score),
+    url_verified: candidate.url_verified ? '1' : '0',
+    resolution_status: String(candidate.resolution_status || opts.resolution_status || 'unverified'),
+    proposed_product_id: String(candidate.proposed_product_id || '').trim(),
+    product_id: String(candidate.product_id || (existing ? existing.product_id : '') || '').trim(),
+    evidence_json: JSON.stringify(candidate.evidence || {}).slice(0, 8000),
+    reject_reason: String(candidate.reject_reason || '').slice(0, 1000),
+    issue_no: String(opts.issue_no || (existing ? existing.issue_no : '') || ''),
+    created_at: existing ? String(existing.created_at) : now,
+    updated_at: now,
+  };
+  if (existing) {
+    setProductCandidateRow_(existing, rows, row);
+    return row;
+  }
+  appendRow('Product_Candidates', row);
+  return row;
+}
+
+function quarantineProductMention_(x, opts) {
+  opts = opts || {};
+  const raw = String((x && x.name_as_written) || '').trim();
+  return upsertProductCandidate_(raw, {
+    canonical_candidate: opts.canonical_candidate || ((x && x.canonical_guess) || ''),
+    brand: opts.brand || ((x && x.brand_guess) || ''),
+    category: opts.category || ((x && x.category_guess) || 'unknown'),
+    sku: opts.sku || '',
+    generation: opts.generation || '',
+    variant: opts.variant || '',
+    product_url_candidate: opts.product_url_candidate || '',
+    source: opts.source || 'gemini_resolve',
+    source_type: opts.source_type || 'ai_hint',
+    identity_score: opts.identity_score,
+    url_score: opts.url_score,
+    url_verified: opts.url_verified,
+    resolution_status: opts.resolution_status || 'unverified',
+    proposed_product_id: opts.proposed_product_id || '',
+    product_id: opts.product_id || '',
+    reject_reason: opts.reason || opts.reject_reason || '',
+    evidence: Object.assign({
+      name_as_written: raw,
+      canonical_guess: String((x && x.canonical_guess) || ''),
+      source_text: String(opts.sourceText || '').slice(0, 600),
+    }, opts.evidence || {}),
+  }, { issue_no: opts.issue_no, source: opts.source });
+}
+
+function promoteProductCandidate_(candidateId, opts) {
+  opts = opts || {};
+  const rows = readTable('Product_Candidates');
+  const row = rows.filter(function(r) { return String(r.candidate_id) === String(candidateId); })[0];
+  if (!row) throw new Error('候选不存在: ' + String(candidateId));
+  if (String(row.resolution_status || '').toLowerCase() !== 'confirmed') throw new Error('候选未确认，不能创建产品');
+  const urlOk = opts.url_verified === true
+    || String(row.url_verified) === '1'
+    || String(opts.url_status || '').toLowerCase() === 'verified';
+  if (!urlOk) throw new Error('候选 URL 未核验，不能创建产品');
+  const canonicalName = String(opts.canonical_name || row.canonical_candidate || '').trim();
+  if (!canonicalName) throw new Error('缺少已确认的官方产品名');
+  const evidenceText = String(opts.evidence_text || row.evidence_json || '').slice(0, 8000);
+  const verdict = validateProductNameBeforeWrite_(canonicalName, {
+    nameAsWritten: String(row.raw_mention || canonicalName),
+    canonicalGuess: canonicalName,
+    sourceText: evidenceText,
+    existingProducts: readTable('Products'),
+  });
+  if (!verdict.ok && !verdict.existingId) throw new Error('候选名校验失败: ' + verdict.reason);
+  const now = new Date().toISOString();
+  const confirmedBy = String(opts.confirmed_by || 'manual_review');
+  let productId = verdict.existingId || String(opts.product_id || row.product_id || '').trim();
+  if (!productId) {
+    productId = createProduct_(canonicalName, String(opts.brand || row.brand || ''), String(opts.category || row.category || 'unknown'), String(row.issue_no || ''), {
+      nameAsWritten: String(row.raw_mention || canonicalName),
+      nameSource: 'confirmed_candidate',
+      status: 'active',
+      identity_status: 'confirmed',
+      resolution_status: 'confirmed',
+      identity_evidence: evidenceText,
+      confirmed_at: now,
+      confirmed_by: confirmedBy,
+      enqueueUrlVerification: false,
+    });
+  }
+  if (typeof updateProductUrlFields_ === 'function') {
+    updateProductUrlFields_(productId, {
+      official_url: String(opts.official_url || row.product_url_candidate || ''),
+      official_url_status: 'verified',
+      official_url_checked_at: now,
+      official_url_notes: String(opts.url_notes || 'confirmed_candidate').slice(0, 1000),
+      official_name: canonicalName,
+      identity_source: String(opts.identity_source || 'confirmed_candidate'),
+      identity_checked_at: now,
+      identity_status: 'confirmed',
+      resolution_status: 'confirmed',
+      identity_evidence: evidenceText,
+      confirmed_at: now,
+      confirmed_by: confirmedBy,
+    });
+  }
+  addAlias_(canonicalName, productId, { status: 'confirmed', evidence: evidenceText, source: 'confirmed_candidate' });
+  if (normalizeAlias(row.raw_mention) !== normalizeAlias(canonicalName)) {
+    addAlias_(row.raw_mention, productId, { status: 'confirmed', evidence: evidenceText, source: 'confirmed_candidate' });
+  }
+  (opts.aliases || []).forEach(function(a) {
+    addAlias_(a, productId, { status: 'confirmed', evidence: evidenceText, source: 'confirmed_candidate' });
+  });
+  setProductCandidateRow_(row, rows, {
+    product_id: productId,
+    resolution_status: 'confirmed',
+    url_verified: '1',
+    url_score: 100,
+    product_url_candidate: String(opts.official_url || row.product_url_candidate || ''),
+    updated_at: now,
+  });
+  return productId;
 }
 
 function createProduct_(name, brand, category, issueNo, opts) {
@@ -266,19 +429,27 @@ function createProduct_(name, brand, category, issueNo, opts) {
     brand: normalizeBrand_(brand),
     category: category || 'unknown',
     first_seen_issue: issueNo,
-    status: 'auto',
+    status: String(opts.status || 'auto'),
     created_at: new Date().toISOString(),
-    official_url: '',
-    official_url_status: 'pending',
-    official_url_checked_at: '',
+    official_url: String(opts.official_url || ''),
+    official_url_status: String(opts.official_url_status || 'pending'),
+    official_url_checked_at: String(opts.official_url_checked_at || ''),
     official_url_notes: opts.nameSource ? ('name_source=' + opts.nameSource) : '',
+    official_name: String(opts.official_name || ''),
+    identity_source: String(opts.identity_source || ''),
+    identity_checked_at: String(opts.identity_checked_at || ''),
+    identity_status: String(opts.identity_status || 'unconfirmed'),
+    resolution_status: String(opts.resolution_status || ''),
+    identity_evidence: String(opts.identity_evidence || '').slice(0, 8000),
+    confirmed_at: String(opts.confirmed_at || ''),
+    confirmed_by: String(opts.confirmed_by || ''),
   });
-  addAlias_(name, id);
+  addAlias_(name, id, { status: String(opts.identity_status || 'unconfirmed'), evidence: opts.identity_evidence, source: 'create_product' });
   if (opts.nameAsWritten && normalizeAlias(opts.nameAsWritten) !== normalizeAlias(name)) {
-    addAlias_(opts.nameAsWritten, id);
+    addAlias_(opts.nameAsWritten, id, { status: String(opts.identity_status || 'unconfirmed'), evidence: opts.identity_evidence, source: 'create_product' });
   }
   // P0-1：创建后立即进入异步 URL 验证队列，不在写入路径同步抓取。
-  if (typeof enqueueUrlVerificationTask_ === 'function') {
+  if (opts.enqueueUrlVerification !== false && typeof enqueueUrlVerificationTask_ === 'function') {
     try {
       enqueueUrlVerificationTask_(id, '', 3);
     } catch (e) {
@@ -291,125 +462,101 @@ function createProduct_(name, brand, category, issueNo, opts) {
 function resolveProducts_(extracts, issueNo, sourceText) {
   IDENTITY_RESOLVE_RUN_COUNT_ = 0;
   const aliasIndex = buildAliasIndex_();
-  const unresolved = [];
   const filtered = [];
   (extracts || []).forEach(function(x) {
-    var name = x && x.name_as_written ? String(x.name_as_written).trim() : '';
+    const name = x && x.name_as_written ? String(x.name_as_written).trim() : '';
     if (!name || !isLikelyProductEntity_(name)) {
-      // 跳过明显的品牌名、品类名、功能名、技术名
+      quarantineProductMention_(x, {
+        issue_no: issueNo,
+        sourceText: sourceText,
+        resolution_status: 'rejected',
+        reason: '名称为空或疑似品牌名/品类名/功能名/技术名',
+      });
       return;
     }
     filtered.push(x);
   });
 
-  filtered.forEach(x => {
+  const unresolved = [];
+  filtered.forEach(function(x) {
     const hit = matchProductRule_(x.name_as_written, aliasIndex);
-    if (hit) { x.product_id = hit; addAlias_(x.name_as_written, hit); }
-    else unresolved.push(x);
+    if (hit) {
+      x.product_id = hit;
+      addAlias_(x.name_as_written, hit, {
+        status: 'confirmed',
+        evidence: 'exact_confirmed_alias',
+        source: 'existing_alias',
+      });
+      return;
+    }
+    unresolved.push(x);
   });
 
   if (unresolved.length) {
-    const mapping = callAI(
-      buildResolvePrompt_(unresolved.map(u => u.name_as_written), readTable('ProductAliases')),
-      RESOLVE_SCHEMA
-    ).mapping || [];
+    let mapping = [];
+    try {
+      const aiResult = callAI(buildResolvePrompt_(unresolved.map(u => u.name_as_written)), RESOLVE_SCHEMA) || {};
+      mapping = aiResult.mapping || [];
+    } catch (e) {
+      Logger.log('产品候选发现失败：' + String(e && e.message ? e.message : e));
+    }
     const mapByName = {};
-    mapping.forEach(m => { mapByName[m.name] = m; });
-
-    // 产品库快照:Gemini 返回的 ID 必须真实存在,否则视为幻觉按 NEW 处理(空库时尤其重要)
+    mapping.forEach(function(m) {
+      if (m && m.name) mapByName[String(m.name)] = m;
+    });
     const productRows = readTable('Products');
     const validIds = {};
-    productRows.forEach(p => validIds[p.product_id] = 1);
+    productRows.forEach(function(p) {
+      if (p && p.product_id) validIds[String(p.product_id)] = p;
+    });
 
-    unresolved.forEach(x => {
-      var xname = String(x.name_as_written || '').trim();
-      if (!isLikelyProductEntity_(xname)) {
-        return;
+    unresolved.forEach(function(x) {
+      const raw = String(x.name_as_written || '').trim();
+      const m = mapByName[raw] || {};
+      const proposed = String(m.product_id || '').trim();
+      const canonical = String(m.canonical_name || '').trim();
+      const fallbackCanonical = String(x.canonical_guess || '').trim();
+      const resolution = String(m.resolution || '').toLowerCase();
+      const confidence = Number(m.confidence);
+      const identityEvidence = String(m.identity_evidence || '').slice(0, 2000);
+      let status = 'unverified';
+      let reason = '候选未经官方目录与 URL 核验，禁止创建产品';
+      if (resolution === 'ambiguous' || resolution === 'unknown' || resolution === 'not_found') {
+        status = 'ambiguous';
+        reason = 'AI 无法确认产品实体';
+      } else if (proposed && proposed !== 'NEW' && !validIds[proposed]) {
+        status = 'rejected';
+        reason = 'AI 返回不存在的 product_id: ' + proposed;
+      } else if (proposed && proposed !== 'NEW') {
+        status = 'unverified';
+        reason = 'AI 提议映射到现有产品，仍需官方证据确认';
+      } else if (!canonical && !fallbackCanonical) {
+        status = 'not_found';
+        reason = '未发现可靠候选';
       }
-      const m = mapByName[xname];
-      const geminiId = (m && m.product_id) || '';
-      if (geminiId && geminiId !== 'NEW' && validIds[geminiId]) {
-        x.product_id = geminiId;
-        addAlias_(xname, geminiId);
-        return;
+      if (!isLikelyProductEntity_(canonical || fallbackCanonical || raw)) {
+        status = 'rejected';
+        reason = '候选名不是具体产品实体';
       }
-      if (geminiId && geminiId !== 'NEW' && !validIds[geminiId]) {
-        enqueuePending_('product', x, 'Gemini 返回了不存在的 ' + geminiId + ',已按新品处理');
-      } else if (!m) {
-        enqueuePending_('product', x, 'Gemini 未返回映射:' + xname);
-      }
-
-      // P0-2：名称写入前强制校验。原文名优先，AI canonical 仅作为候选。
-      var aiCanonical = String((m && m.canonical_name) || x.canonical_guess || '').trim();
-      var verdict = validateProductNameBeforeWrite_(xname, {
-        nameAsWritten: xname,
-        canonicalGuess: aiCanonical,
-        sourceText: sourceText || '',
-        existingProducts: productRows
+      quarantineProductMention_(x, {
+        issue_no: issueNo,
+        sourceText: sourceText,
+        canonical_candidate: canonical || fallbackCanonical,
+        brand: String(m.brand || x.brand_guess || ''),
+        category: String(m.category || x.category_guess || 'unknown'),
+        resolution_status: status,
+        proposed_product_id: proposed && proposed !== 'NEW' ? proposed : '',
+        identity_score: isFinite(confidence) ? confidence : '',
+        reason: reason,
+        evidence: {
+          name_as_written: raw,
+          canonical_guess: fallbackCanonical,
+          ai_canonical: canonical,
+          ai_resolution: resolution,
+          identity_evidence: identityEvidence,
+          proposed_product_id: proposed,
+        },
       });
-
-      // 与现有产品同名：复用它，绝不覆盖字典里的 canonical_name。
-      if (verdict.existingId) {
-        x.product_id = verdict.existingId;
-        addAlias_(xname, verdict.existingId);
-        return;
-      }
-
-      // 原文名不通过时，只有当 AI 建议名也能在原文中追溯，才允许改用建议名。
-      if (!verdict.ok && aiCanonical && aiCanonical !== xname) {
-        var alt = validateProductNameBeforeWrite_(aiCanonical, {
-          nameAsWritten: xname,
-          canonicalGuess: aiCanonical,
-          sourceText: sourceText || '',
-          existingProducts: productRows
-        });
-        if (alt.ok && alt.source === 'canonical_guess_in_source') verdict = alt;
-        else if (alt.existingId) {
-          x.product_id = alt.existingId;
-          addAlias_(xname, alt.existingId);
-          return;
-        }
-      }
-
-      if (!verdict.ok) {
-        enqueuePending_('product_name_rejected', {
-          name_as_written: xname,
-          ai_canonical: aiCanonical,
-          brand: x.brand_guess || '',
-          category: x.category_guess || '',
-          evidence: String(x.evidence || '').slice(0, 300)
-        }, verdict.reason);
-        return;
-      }
-
-      x.product_id = createProduct_(
-        verdict.name,
-        (m && m.brand) || x.brand_guess || '',
-        (m && m.category) || x.category_guess || 'unknown',
-        issueNo,
-        { nameAsWritten: xname, nameSource: verdict.source }
-      );
-      if (x.product_id) {
-        addAlias_(xname, x.product_id);
-        var maxIdentity = Math.max(0, Number(CONFIG.PRODUCT_IDENTITY_MAX_PER_RUN) || 0);
-        var identityEnabled = String(
-          scriptProperty_('PRODUCT_IDENTITY_ENABLED')
-          || (CONFIG.PRODUCT_IDENTITY_ENABLED !== false ? '1' : '0')
-        ).toLowerCase();
-        if (identityEnabled !== '0' && identityEnabled !== 'false'
-            && IDENTITY_RESOLVE_RUN_COUNT_ < maxIdentity
-            && typeof ensureProductIdentity_ === 'function') {
-          IDENTITY_RESOLVE_RUN_COUNT_++;
-          try {
-            var created = readTable('Products').filter(function(p) {
-              return String(p.product_id) === String(x.product_id);
-            })[0];
-            if (created) ensureProductIdentity_(created, Date.now() + 120000);
-          } catch (e) {
-            Logger.log('产品身份解析失败 ' + x.product_id + '：' + String(e && e.message ? e.message : e));
-          }
-        }
-      }
     });
   }
   return new Set(filtered.map(x => x.product_id).filter(Boolean));
@@ -551,11 +698,12 @@ function writeDocumentExtraction_(doc, ext, issueNo, dedup, stats) {
   const now = new Date().toISOString();
   const products = ext.products || [];
   resolveProducts_(products, issueNo, String(doc.text || ''));
+  const resolvedProducts = products.filter(p => !!p.product_id);
 
   // 批量话题消重:按产品分批(话题身份 = product_id + name,产品之间完全隔离)
   const topicMap = {};
   const namesByProduct = {};
-  products.forEach(p => (p.topics || []).forEach(t => {
+  resolvedProducts.forEach(p => (p.topics || []).forEach(t => {
     if (t.evidence) (namesByProduct[p.product_id] = namesByProduct[p.product_id] || []).push(t.name);
   }));
   Object.keys(namesByProduct).forEach(pid => {
@@ -565,7 +713,7 @@ function writeDocumentExtraction_(doc, ext, issueNo, dedup, stats) {
 
   // 话题摘要回填:首选该文档中此话题第一次出现处的摘要
   const topicSummaries = {};
-  products.forEach(p => (p.topics || []).forEach(t => {
+  resolvedProducts.forEach(p => (p.topics || []).forEach(t => {
     if (t.evidence && t.topic_summary && !topicSummaries[t.name]) {
       topicSummaries[t.name] = String(t.topic_summary).slice(0, 500);
     }
@@ -583,7 +731,7 @@ function writeDocumentExtraction_(doc, ext, issueNo, dedup, stats) {
     }
   }
 
-  products.forEach(p => {
+  resolvedProducts.forEach(p => {
     (p.topics || []).forEach(t => {
       if (!t.evidence) return; // 无证据不入库 — 硬规则
       const topicId = topicMap[p.product_id + '|' + t.name].topic_id;
@@ -644,6 +792,7 @@ function writeDocumentExtraction_(doc, ext, issueNo, dedup, stats) {
       if (!c.evidence) return;
       const tmp = [{ name_as_written: c.name_as_written }];
       resolveProducts_(tmp, issueNo, String(doc.text || ''));
+      if (!tmp[0].product_id) { stats.skipped++; return; }
       if (tmp[0].product_id === p.product_id) { stats.skipped++; return; } // 自环比无意义
       const key = [doc.doc_id, p.product_id, tmp[0].product_id].join('|');
       if (dedup.comps.has(key)) { stats.skipped++; return; }
